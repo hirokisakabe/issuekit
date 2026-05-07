@@ -22,42 +22,41 @@ A Claude Code skill bundle that treats each GitHub issue as the canonical "rich 
 
 ## Table of Contents
 
-- [💡 Philosophy](#-philosophy)
-- [🆚 Comparison with related frameworks](#-comparison-with-related-frameworks)
+- [📦 Install](#-install)
+- [🛠️ Dependencies](#-dependencies)
 - [🧩 Skills](#-skills)
 - [🔁 Workflow](#-workflow)
-- [🛠️ Dependencies](#-dependencies)
-- [📦 Install](#-install)
+- [💡 Philosophy](#-philosophy)
+- [🆚 Comparison with related frameworks](#-comparison-with-related-frameworks)
 - [📄 License](#-license)
 
 ---
 
-## 💡 Philosophy
+## 📦 Install
 
-Most "spec-driven" or "plan-driven" frameworks for AI coding agents store the spec **in the repository** as markdown files (`spec.md`, `plan.md`, etc.) checked in alongside the code. issuekit takes a different position:
+issuekit is distributed via [skills.sh](https://skills.sh) ([vercel-labs/skills](https://github.com/vercel-labs/skills)).
 
-- **Specs and plans are volatile.** They describe a single unit of intent. Once the work is merged, the plan is dead — what survives is the code, the test, and (if anything) a one-line commit message.
-- **Versioning volatile artifacts in git is friction.** A merged plan rots in the repo, gets stale, and pollutes diffs and search.
-- **GitHub issues are already a versioned, queryable, time-bounded plan store.** They have state (`open` / `closed`), threading, references, and a natural lifecycle that matches the work itself.
+```bash
+# Install all six skills
+npx skills add hirokisakabe/issuekit
 
-So issuekit treats the **GitHub issue as the rich plan** for the work, and the repository contains only the durable artifacts (code, tests, configs). When the issue is closed, the plan disappears from the active surface area — exactly as intended.
+# Or install a specific skill only
+npx skills add hirokisakabe/issuekit --skill issue-implement
+```
 
-This is opinionated. issuekit will not be a good fit if you want plans to live next to the code, or if your team's workflow expects spec markdown checked in.
+This installs the skills under your agent's skill directory (e.g. `~/.claude/skills/` for Claude Code). See [skills.sh](https://skills.sh) for the list of supported agents (Claude Code, Codex CLI, Cursor, Gemini, ...).
 
 ---
 
-## 🆚 Comparison with related frameworks
+## 🛠️ Dependencies
 
-issuekit shares one core idea with Spec Kit, cc-spex, and superpowers: **make the "what" an explicit contract that an AI agent can read, follow, and be checked against.** Where they differ is _where_ that contract lives, and how compliance is verified.
+issuekit assumes the following tools are available on the host:
 
-| Framework                                          | Contract location                                           | Verification model                                                                                    | Fit                                                 |
-| -------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| [Spec Kit](https://github.com/github/spec-kit)     | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Teams that want specs versioned alongside code      |
-| [cc-spex](https://github.com/rhuss/cc-spex)        | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Solo / small team, lighter than Spec Kit            |
-| [superpowers](https://github.com/obra/superpowers) | Skill bundle of general-purpose engineering workflows       | Skill conventions + agent judgment                                                                    | Broad augmentation of Claude Code; not spec-centric |
-| **issuekit**                                       | GitHub issue body (`## 受け入れ条件`, `## スコープ外`, ...) | `acceptance-check` skill mechanically verifies each acceptance criterion as `✓ / ✗ / ?` before commit | Solo dev who already runs an issue-first workflow   |
+- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** — the agent runtime that loads the skills.
+- **[`gh` CLI](https://cli.github.com/)** — used for all GitHub interactions (issue read/write, PR creation, CI status).
+- **[Codex CLI](https://github.com/openai/codex)** — used by `codex-review` to obtain a cross-review from a different model. Install with `brew install --cask codex` (or the equivalent for your platform).
 
-The differentiator that matters most to issuekit's design is the **verification model**. Detailed specs help agents stay on-rails, but spec compliance is itself a problem: the longer the spec, the more places the agent can drift. issuekit's response is structural rather than prescriptive — instead of writing more spec, write fewer but **mechanically verifiable** acceptance criteria, and have a dedicated skill (`acceptance-check`) check them before commit. The spec stays small; the verification stays honest.
+`gh` must be authenticated against the repository you want to operate on. Codex CLI must be reachable on `PATH`; if it is not installed, `codex-review` will fail explicitly rather than silently skipping the review.
 
 ---
 
@@ -105,31 +104,32 @@ flowchart LR
 
 ---
 
-## 🛠️ Dependencies
+## 💡 Philosophy
 
-issuekit assumes the following tools are available on the host:
+Most "spec-driven" or "plan-driven" frameworks for AI coding agents store the spec **in the repository** as markdown files (`spec.md`, `plan.md`, etc.) checked in alongside the code. issuekit takes a different position:
 
-- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** — the agent runtime that loads the skills.
-- **[`gh` CLI](https://cli.github.com/)** — used for all GitHub interactions (issue read/write, PR creation, CI status).
-- **[Codex CLI](https://github.com/openai/codex)** — used by `codex-review` to obtain a cross-review from a different model. Install with `brew install --cask codex` (or the equivalent for your platform).
+- **Specs and plans are volatile.** They describe a single unit of intent. Once the work is merged, the plan is dead — what survives is the code, the test, and (if anything) a one-line commit message.
+- **Versioning volatile artifacts in git is friction.** A merged plan rots in the repo, gets stale, and pollutes diffs and search.
+- **GitHub issues are already a versioned, queryable, time-bounded plan store.** They have state (`open` / `closed`), threading, references, and a natural lifecycle that matches the work itself.
 
-`gh` must be authenticated against the repository you want to operate on. Codex CLI must be reachable on `PATH`; if it is not installed, `codex-review` will fail explicitly rather than silently skipping the review.
+So issuekit treats the **GitHub issue as the rich plan** for the work, and the repository contains only the durable artifacts (code, tests, configs). When the issue is closed, the plan disappears from the active surface area — exactly as intended.
+
+This is opinionated. issuekit will not be a good fit if you want plans to live next to the code, or if your team's workflow expects spec markdown checked in.
 
 ---
 
-## 📦 Install
+## 🆚 Comparison with related frameworks
 
-issuekit is distributed via [skills.sh](https://skills.sh) ([vercel-labs/skills](https://github.com/vercel-labs/skills)).
+issuekit shares one core idea with Spec Kit, cc-spex, and superpowers: **make the "what" an explicit contract that an AI agent can read, follow, and be checked against.** Where they differ is _where_ that contract lives, and how compliance is verified.
 
-```bash
-# Install all six skills
-npx skills add hirokisakabe/issuekit
+| Framework                                          | Contract location                                           | Verification model                                                                                    | Fit                                                 |
+| -------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| [Spec Kit](https://github.com/github/spec-kit)     | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Teams that want specs versioned alongside code      |
+| [cc-spex](https://github.com/rhuss/cc-spex)        | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Solo / small team, lighter than Spec Kit            |
+| [superpowers](https://github.com/obra/superpowers) | Skill bundle of general-purpose engineering workflows       | Skill conventions + agent judgment                                                                    | Broad augmentation of Claude Code; not spec-centric |
+| **issuekit**                                       | GitHub issue body (`## 受け入れ条件`, `## スコープ外`, ...) | `acceptance-check` skill mechanically verifies each acceptance criterion as `✓ / ✗ / ?` before commit | Solo dev who already runs an issue-first workflow   |
 
-# Or install a specific skill only
-npx skills add hirokisakabe/issuekit --skill issue-implement
-```
-
-This installs the skills under your agent's skill directory (e.g. `~/.claude/skills/` for Claude Code). See [skills.sh](https://skills.sh) for the list of supported agents (Claude Code, Codex CLI, Cursor, Gemini, ...).
+The differentiator that matters most to issuekit's design is the **verification model**. Detailed specs help agents stay on-rails, but spec compliance is itself a problem: the longer the spec, the more places the agent can drift. issuekit's response is structural rather than prescriptive — instead of writing more spec, write fewer but **mechanically verifiable** acceptance criteria, and have a dedicated skill (`acceptance-check`) check them before commit. The spec stays small; the verification stays honest.
 
 ---
 
