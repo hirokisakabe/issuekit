@@ -52,11 +52,13 @@ This installs the skills under your agent's skill directory (e.g. `~/.claude/ski
 
 issuekit assumes the following tools are available on the host:
 
-- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** — the agent runtime that loads the skills.
+- **An [Agent Skills](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)-compatible agent runtime** (e.g. [Claude Code](https://docs.claude.com/en/docs/claude-code), Codex CLI, Cursor) that loads the skills.
 - **[`gh` CLI](https://cli.github.com/)** — used for all GitHub interactions (issue read/write, PR creation, CI status).
-- **[Codex CLI](https://github.com/openai/codex)** — used by `codex-review` to obtain a cross-review from a different model. Install with `brew install --cask codex` (or the equivalent for your platform).
+- **At least one cross-review backend CLI** — required by `cross-review`. Pick whichever pairs with the agent driving the implementation:
+  - **[Codex CLI](https://github.com/openai/codex)** (`brew install --cask codex`) for the `codex` backend.
+  - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) for the `claude-self` backend (uses `claude --bare -p` headless mode).
 
-`gh` must be authenticated against the repository you want to operate on. Codex CLI must be reachable on `PATH`; if it is not installed, `codex-review` will fail explicitly rather than silently skipping the review.
+`gh` must be authenticated against the repository you want to operate on. The `cross-review` backend is selected via the `CROSS_REVIEW_BACKEND` environment variable (`codex` / `claude-self`); if it is unset, the skill auto-detects whichever CLI is on `PATH`. If neither backend CLI is available, `cross-review` fails explicitly rather than silently skipping the review.
 
 ---
 
@@ -71,7 +73,7 @@ issuekit ships six Claude Code skills under `skills/`:
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
 | `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → implementation → cross-review → acceptance check → commit → PR → CI.                         |
 | `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` before commit. |
-| `codex-review`       | Verifier    | Delegate a second-opinion code review to the Codex CLI before opening a PR. Called by `issue-implement` after implementation.                          |
+| `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before opening a PR. Called by `issue-implement` after implementation. |
 
 `issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls.
 
@@ -87,7 +89,7 @@ flowchart LR
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
     I --> IMPL[issue-implement]
-    IMPL --> CR[codex-review]
+    IMPL --> CR[cross-review]
     CR --> AC[acceptance-check]
     AC --> C[commit + PR + CI]
 
