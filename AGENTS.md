@@ -49,9 +49,9 @@ These strings are not localizable in the current implementation. Forking is requ
 
 `acceptance-check` reports `✓ / ✗ / ?` and never writes. It does not flip `- [ ]` to `- [x]`, never edits issue bodies, and does not perform actual UI/CLI verification (only suggests how). `?` items are explicitly delegated to the caller.
 
-## Cross-review base branch caveat
+## Cross-review base branch resolution
 
-`codex-review` currently passes `--base main` to `codex exec review`. Repos whose default branch is `master` / `develop` / `trunk` will get broken diffs. `issue-implement` documents this constraint — do not silently change one without the other.
+`codex-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and passes the result to `git diff` / `codex exec review --base`. `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
 
 ## External dependencies
 
