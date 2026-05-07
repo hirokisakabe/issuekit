@@ -14,14 +14,14 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 
 `issue-implement` is the orchestrator of the implementation cycle and **calls** the other skills:
 
-- `issue-implement` → `codex-review` (cross-review after implementation, before commit)
+- `issue-implement` → `cross-review` (second-opinion code review after implementation, before commit)
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` after cross-review, before commit)
 - `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills (see `issue-pick` "やらないこと" — chaining to `issue-implement` is via user only).
 
 When editing one skill, check whether others reference it. Cross-references appear in two forms:
 
-- Plugin mode: `issuekit:<skill-name>` (e.g. `issuekit:codex-review`)
-- APM plain-skill mode: bare `<skill-name>` (e.g. `codex-review`)
+- Plugin mode: `issuekit:<skill-name>` (e.g. `issuekit:cross-review`)
+- APM plain-skill mode: bare `<skill-name>` (e.g. `cross-review`)
 
 Both forms must stay in sync — `issue-implement` and `issue-pick` document each form explicitly.
 
@@ -49,14 +49,23 @@ These strings are not localizable in the current implementation. Forking is requ
 
 `acceptance-check` reports `✓ / ✗ / ?` and never writes. It does not flip `- [ ]` to `- [x]`, never edits issue bodies, and does not perform actual UI/CLI verification (only suggests how). `?` items are explicitly delegated to the caller.
 
+## Cross-review backend selection
+
+`cross-review` supports two backends, selected via the `CROSS_REVIEW_BACKEND` environment variable:
+
+- `codex` — OpenAI Codex CLI (`codex exec review`). Intended for "implemented with Claude Code → reviewed by GPT".
+- `claude-self` — Claude CLI headless (`claude --bare -p` with stdin diff). Intended for "implemented with Codex CLI / Cursor → reviewed by Claude".
+
+When the env var is unset, the skill falls back to `command -v` auto-detection (`codex` first, then `claude`). When the env var is **set** but the corresponding CLI is missing, the skill fails explicitly — there is no silent fallback to the other backend, since that would silently change the reviewer model the user asked for.
+
 ## Cross-review base branch resolution
 
-`codex-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and passes the result to `git diff` / `codex exec review --base`. `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
+`cross-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and passes the result to `git diff` (both backends) and `codex exec review --base` (codex backend only). `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
 
 ## External dependencies
 
 - `gh` CLI — all GitHub operations. Must be authenticated against the target repo.
-- Codex CLI — required by `codex-review`; install with `brew install --cask codex`. The skill must fail loudly (not silently skip) when `codex` is missing.
+- At least one of: Codex CLI (`brew install --cask codex`) or Claude CLI (`npm install -g @anthropic-ai/claude-code`), required by `cross-review`. The skill must fail loudly (not silently skip) when neither is available, or when an explicitly-selected backend's CLI is missing.
 
 ## Editing skills
 

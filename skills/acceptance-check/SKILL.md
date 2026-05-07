@@ -1,6 +1,6 @@
 ---
 name: acceptance-check
-description: GitHub issue 本文の `## 受け入れ条件` セクションを抽出し、各項目を自動検査して結果を ✓ / ✗ / ? で報告する read-only skill。`issue-implement` cycle 内で codex-review 後・commit 前に呼び出して受け入れ条件確認を標準化する。
+description: GitHub issue 本文の `## 受け入れ条件` セクションを抽出し、各項目を自動検査して結果を ✓ / ✗ / ? で報告する read-only skill。`issue-implement` cycle 内で cross-review 後・commit 前に呼び出して受け入れ条件確認を標準化する。
 ---
 
 # Acceptance Check Skill
@@ -83,7 +83,7 @@ issue 本文から `## 受け入れ条件` の見出し以降〜次の `## ` 見
 
 ## 利用タイミング
 
-- **`issue-implement` cycle 内**: codex-review 後・commit 前に呼び出す。`✗` がある場合は commit に進まず修正する。`?` のみであれば呼び出し側で人間判定を経て進む。
+- **`issue-implement` cycle 内**: cross-review 後・commit 前に呼び出す。`✗` がある場合は commit に進まず修正する。`?` のみであれば呼び出し側で人間判定を経て進む。
 - **手動呼び出し**: 実装完了後にユーザーが受け入れ条件のチェックを依頼した場合。
 
 ## 失敗時の対応
