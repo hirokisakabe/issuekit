@@ -16,7 +16,8 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 
 - `issue-implement` → `cross-review` (second-opinion code review after implementation, before commit)
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` after cross-review, before commit)
-- `issue-create` / `issue-refine` / `issue-pick` / `worktree-start` are entry points; they do not chain into other skills. `worktree-start` is the **issue-less** entry point for task-driven parallel sessions and intentionally does not chain into `issue-implement` even when the user mentions an issue number (see its "やらないこと"); `issue-pick` likewise is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
+- `worktree-start` → `issue-implement` (**only** when input is an issue URL/number with `Status: Ready`; with a generic task description, `Status: Draft`, or unformatted issues it stops at the worktree switch)
+- `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
 
 When editing one skill, check whether others reference it. Cross-references appear in two forms:
 
