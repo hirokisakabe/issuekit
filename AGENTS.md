@@ -6,7 +6,7 @@ This file provides guidance to coding agents (Claude Code, Codex, etc.) when wor
 
 ## What this repository is
 
-issuekit is a **Claude Code skill bundle**, not an application. It contains 6 skills as `skills/<name>/SKILL.md` markdown files, distributed through skills.sh (`npx skills add hirokisakabe/issuekit`). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
+issuekit is a **Claude Code skill bundle**, not an application. It contains 7 skills as `skills/<name>/SKILL.md` markdown files, distributed through skills.sh (`npx skills add hirokisakabe/issuekit`). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
 
 The bundle codifies an **issue-driven development** workflow where the GitHub issue body is the rich plan (with `Status: Ready/Draft`, `## 受け入れ条件`, `## スコープ外`, `Depends on:`, `親: #N`), and the repository contains only durable code. See `README.md` for the philosophy and the comparison vs. Spec Kit / cc-spex / superpowers.
 
@@ -16,7 +16,7 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 
 - `issue-implement` → `cross-review` (second-opinion code review after implementation, before commit)
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` after cross-review, before commit)
-- `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills (see `issue-pick` "やらないこと" — chaining to `issue-implement` is via user only).
+- `issue-create` / `issue-refine` / `issue-pick` / `worktree-start` are entry points; they do not chain into other skills. `worktree-start` is the **issue-less** entry point for task-driven parallel sessions and intentionally does not chain into `issue-implement` even when the user mentions an issue number (see its "やらないこと"); `issue-pick` likewise is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
 
 When editing one skill, check whether others reference it. Cross-references appear in two forms:
 
@@ -49,6 +49,15 @@ These strings are not localizable in the current implementation. Forking is requ
 
 `acceptance-check` reports `✓ / ✗ / ?` and never writes. It does not flip `- [ ]` to `- [x]`, never edits issue bodies, and does not perform actual UI/CLI verification (only suggests how). `?` items are explicitly delegated to the caller.
 
+## Worktree-start is Claude Code only
+
+`worktree-start` invokes the `EnterWorktree` tool added to Claude Code in v2.1.49 (2026-02-19). This primitive is Claude Code-specific:
+
+- Codex CLI has no worktree concept ([openai/codex#13120](https://github.com/openai/codex/issues/13120)); Codex Worktrees ship only in the Desktop app, not the CLI.
+- The skill therefore does **not** provide a fallback for non-Claude-Code agents — when run under another runtime the `EnterWorktree` tool will simply not exist. Users on Codex / Cursor / Gemini should fall back to plain `git worktree add` outside the agent.
+- Branch naming is the skill's responsibility (LLM-named in kebab-case, or user-supplied verbatim). The `worktree-` prefix forced by `EnterWorktree` is intentionally accepted; the `path` parameter escape hatch is out of scope (see issue #13).
+- The skill is a no-op when the current session is already inside a worktree — `EnterWorktree` itself rejects re-entry, and the skill double-checks via `git rev-parse --git-common-dir` / `--git-dir` before calling the tool.
+
 ## Cross-review backend selection
 
 `cross-review` supports two backends, selected via the `CROSS_REVIEW_BACKEND` environment variable:
@@ -66,6 +75,7 @@ When the env var is unset, the skill falls back to `command -v` auto-detection (
 
 - `gh` CLI — all GitHub operations. Must be authenticated against the target repo.
 - At least one of: Codex CLI (`brew install --cask codex`) or Claude CLI (`npm install -g @anthropic-ai/claude-code`), required by `cross-review`. The skill must fail loudly (not silently skip) when neither is available, or when an explicitly-selected backend's CLI is missing.
+- Claude Code v2.1.49 or newer — required by `worktree-start` for the `EnterWorktree` tool. Older versions surface this as "tool not found"; the skill instructs users to upgrade rather than attempting any workaround.
 
 ## Editing skills
 

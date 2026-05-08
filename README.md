@@ -37,7 +37,7 @@ A Claude Code skill bundle that treats each GitHub issue as the canonical "rich 
 issuekit is distributed via [skills.sh](https://skills.sh) ([vercel-labs/skills](https://github.com/vercel-labs/skills)).
 
 ```bash
-# Install all six skills
+# Install all seven skills
 npx skills add hirokisakabe/issuekit
 
 # Or install a specific skill only
@@ -57,6 +57,7 @@ issuekit assumes the following tools are available on the host:
 - **At least one cross-review backend CLI** — required by `cross-review`. Pick whichever pairs with the agent driving the implementation:
   - **[Codex CLI](https://github.com/openai/codex)** (`brew install --cask codex`) for the `codex` backend.
   - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) for the `claude-self` backend (uses `claude --bare -p` headless mode).
+- **Claude Code v2.1.49 or newer** — required by `worktree-start` only (it uses the `EnterWorktree` tool added in 2.1.49). The other six skills run on any Agent Skills-compatible runtime.
 
 `gh` must be authenticated against the repository you want to operate on. The `cross-review` backend is selected via the `CROSS_REVIEW_BACKEND` environment variable (`codex` / `claude-self`); if it is unset, the skill auto-detects whichever CLI is on `PATH`. If neither backend CLI is available, `cross-review` fails explicitly rather than silently skipping the review.
 
@@ -64,18 +65,19 @@ issuekit assumes the following tools are available on the host:
 
 ## 🧩 Skills
 
-issuekit ships six Claude Code skills under `skills/`:
+issuekit ships seven Claude Code skills under `skills/`:
 
 | Skill                | Role        | Description                                                                                                                                            |
 | -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `issue-create`       | Entry point | Open a new GitHub issue using issuekit's standard format (`Status: Ready` / `Status: Draft` header, intent, plan, acceptance criteria, out-of-scope).  |
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
+| `worktree-start`     | Entry point | **Claude Code only.** Switch the running session into a freshly named git worktree via the `EnterWorktree` tool — an issue-less starting point for parallel task sessions. Replaces the dotfiles `cwt` / `wt` flow. |
 | `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → implementation → cross-review → acceptance check → commit → PR → CI.                         |
 | `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` before commit. |
 | `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before opening a PR. Called by `issue-implement` after implementation. |
 
-`issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls.
+`issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only entry point that is Claude Code-specific (`EnterWorktree` is a Claude Code primitive — Codex CLI has no equivalent), so it has no fallback under other agent runtimes.
 
 ---
 
