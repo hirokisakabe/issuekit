@@ -1,25 +1,26 @@
 ---
 name: worktree-start
-description: Claude Code 専用。素の `claude` で起動した直後に、タスク説明から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。`cwt` (dotfiles の wezterm + worktrunk + claude 起動 alias) の代替として、issue 不要なタスク起点での並列セッション立ち上げに使う。
+description: Claude Code 専用。素の `claude` で起動した直後に、タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。`cwt` (dotfiles の wezterm + worktrunk + claude 起動 alias) の代替として、issue 起点・タスク起点どちらでも並列セッション立ち上げに使う。issue URL / 番号入力で Status: Ready の場合は worktree 切り替え後に `issue-implement` へ自動連鎖する。
 ---
 
 # Worktree Start Skill
 
-Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起動済みセッションの cwd を新規 git worktree に切り替えて並列タスクを開始する skill。`issue-implement` が「issue 起点」の orchestrator なのに対し、本 skill は **issue 不要なタスク起点の entry point** として並ぶ。
+Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起動済みセッションの cwd を新規 git worktree に切り替えて並列タスクを開始する skill。`issue-implement` が「issue 起点の実装サイクル」の orchestrator であるのに対し、本 skill は **issue 起点・タスク起点どちらでも入れる entry point** として並ぶ。
 
 ## スコープ
 
-- **含む**: タスク説明からのブランチ名生成 (LLM 命名 or ユーザー明示指定の受領)、`EnterWorktree` ツール呼び出しによるセッション cwd 切り替え、既存 worktree 内での no-op 判定。
+- **含む**: タスク説明 / issue URL / issue 番号からのブランチ名生成 (LLM 命名 or ユーザー明示指定の受領)、`EnterWorktree` ツール呼び出しによるセッション cwd 切り替え、既存 worktree 内での no-op 判定、issue 入力時の Status 判定と Ready 時の `issue-implement` への引き継ぎ。
 - **含まない**:
   - **`wezterm cli spawn` 等の外部タブ管理**: 並列タブの起動はユーザー操作のまま。
-  - **`issue-implement` への自動連鎖**: 本 skill は worktree 切り替えのみを行い、issue 駆動サイクルへの引き継ぎはユーザーが明示的に行う。
   - **Codex CLI / 他 agent 用の fallback 実装**: `EnterWorktree` は Claude Code 固有で、他 runtime には対応 primitive が存在しない。
   - **`EnterWorktree` の `path` パラメータでクリーン命名する回避策**: `worktree-` prefix 強制を許容する方針 (issue #13 スコープ外)。
   - **作成済み worktree のクリーンアップ**: `ExitWorktree` / `git worktree remove` 等は呼ばない。
+  - **Status: Draft / フォーマット不完全な issue 入力時の `issue-implement` 連鎖**: 受け入れ条件が確定していない issue は着手対象外。worktree 作成のみ行い `issue-refine` を案内する。
 
 ## 利用タイミング
 
 - ユーザーが「worktree でタスクを始めたい」「並列タブで別タスクを切り出したい」「cwt の代わり」のような起動指示を与えたとき。
+- ユーザーが **issue URL** (`https://github.com/<owner>/<repo>/issues/<N>`) または **issue 番号** をセッション冒頭に貼り、新規 worktree で着手したいとき。
 - すでに wezterm 等で素の `claude` が起動しており、これから worktree に入りたい状況。
 
 ## Claude Code 限定であること
@@ -38,13 +39,13 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 
 ## 入力
 
-ユーザーから受け取るのは「これから始めるタスクの説明」一つだけ。例:
+ユーザーから受け取るのは以下のいずれか:
 
-- 「Slack 連携の OAuth フローを実装したい」
-- 「issue #42 のバグを直したい」
-- 「dependabot PR をまとめてレビューする」
+- **タスク説明** (issue 不要): 「Slack 連携の OAuth フローを実装したい」「dependabot PR をまとめてレビューする」など。
+- **issue URL**: `https://github.com/<owner>/<repo>/issues/<N>` 形式。
+- **issue 番号**: `#42` / `42` 単体。
 
-issue 番号を含む依頼であっても、本 skill は issue 本文を取りに行かず、ブランチ名生成の入力としてのみ扱う。issue 駆動の実装サイクルを回したい場合は、worktree に入った後でユーザーが `issue-implement <番号>` を呼ぶ運用とする（連鎖 trigger は行わない。「やらないこと」参照）。
+issue URL / 番号が渡された場合は、本 skill 側で `gh issue view` を呼び出して title (ブランチ名生成用) と Status (連鎖判定用) を取得する。**Status の判定軸は `issue-create` の定義 (受け入れ条件の確定度) に従う**。
 
 ## 実行手順
 
@@ -59,36 +60,53 @@ issue 番号を含む依頼であっても、本 skill は issue 本文を取り
 
 `EnterWorktree` を投機的に呼んでツール側のエラーで気付く運用は避ける。skill 側で先に判定し、ユーザーには「すでに worktree 内のため何もしません」と返す。
 
-### 2. ブランチ名の決定
+### 2. 入力タイプの判定と issue 取得
 
-ユーザーが渡したタスク説明から、Claude Code 自身が短いブランチ名を生成する。`cwt` の `claude -p` 相当の役割を skill 内に取り込んだもの。
+ユーザー入力を以下に分類する:
 
-- 形式: 英小文字 + 数字 + ハイフン (`kebab-case`) で 3〜5 単語程度。
-- 内容: タスク説明の核となる名詞・動詞を抽出し、要約。
+- **タスク説明 (issue なし)**: そのまま step 3 のブランチ名生成へ進む。issue 連鎖は行わない (step 5 はスキップ)。
+- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N>` で本文と title を取得する。本文先頭の `Status:` を確認して以下に分岐する:
+  - **`Status: Ready`**: 連鎖対象。step 3 でブランチ名を生成し、step 4 完了後 step 5 で `issue-implement` へ引き継ぐ。
+  - **`Status: Draft`**: 受け入れ条件が未確定なため `issue-implement` への連鎖は **行わない**。worktree は作成して切り替えるが、step 6 の完了報告で `issuekit:issue-refine` skill (APM plain-skill mode では `issue-refine`) での整理を案内する。
+  - **`Status:` 表記なし / フォーマット不完全**: 同様に連鎖せず、`issue-refine` を案内する。
+
+### 3. ブランチ名の決定
+
+- **タスク説明から**: Claude Code 自身が短い slug を生成する。形式は英小文字 + 数字 + ハイフン (`kebab-case`) で 3〜5 単語程度。タスク説明の核となる名詞・動詞を抽出して要約する。
+  - 例: 「Slack 連携の OAuth フロー実装」 → `slack-oauth-flow`
+  - 例: 「dependabot PR の取りまとめレビュー」 → `dependabot-roundup-review`
+- **issue 入力から**: issue title から同形式の slug を生成し、末尾に `-<issue 番号>` を付与する。issue とブランチを後から照合できるようにする狙い。
+  - 例: issue #42「Slack 連携の OAuth フロー」 → `slack-oauth-flow-42`
+- **ユーザー明示指定**: 「ブランチ名は `xxx` にして」と渡された場合は LLM 命名を行わずそのまま採用する。
 - prefix: `EnterWorktree` 側で `worktree-` プレフィックスが強制付与される仕様 ([Claude Code worktrees docs](https://code.claude.com/docs/en/worktrees)) を許容する。skill 側でクリーンな命名のために `path` パラメータで回避することはしない（issue #13 スコープ外）。
-- ユーザーから「ブランチ名は `xxx` にして」のように明示指定があった場合は LLM 命名を行わずそのまま採用する。
 
-例:
-- 入力: 「Slack 連携の OAuth フロー実装」 → `slack-oauth-flow`
-- 入力: 「dependabot PR の取りまとめレビュー」 → `dependabot-roundup-review`
-
-### 3. `EnterWorktree` の呼び出し
+### 4. `EnterWorktree` の呼び出し
 
 確定したブランチ名を `name` 引数に渡して `EnterWorktree` を呼ぶ。
 
 ```
-EnterWorktree({ name: "slack-oauth-flow" })
+EnterWorktree({ name: "slack-oauth-flow-42" })
 ```
 
-成功すれば現在のセッションの cwd が新規 worktree (`worktree-slack-oauth-flow` 系のブランチ + 対応ディレクトリ) に切り替わる。以降のツール呼び出しは新 worktree 上で動作する。
+成功すれば現在のセッションの cwd が新規 worktree (`worktree-slack-oauth-flow-42` 系のブランチ + 対応ディレクトリ) に切り替わる。以降のツール呼び出しは新 worktree 上で動作する。
 
-### 4. 完了報告
+### 5. (issue Ready 時のみ) `issue-implement` への引き継ぎ
+
+step 2 で **issue URL / 番号 + `Status: Ready`** だった場合のみ、`issuekit:issue-implement` skill (APM plain-skill mode では `issue-implement`) を該当 issue 番号で呼び出し、issue 駆動の実装サイクルへ引き継ぐ。
+
+- 引き継ぎ前にユーザーへの確認は挟まない。Ready は「着手 OK」のシグナルとして扱う方針 (`issue-create` の Status 定義に従う)。
+- 連鎖後の Status / Depends on / 親 issue 確認・実装・cross-review・受け入れ条件チェック・commit・PR・CI は `issue-implement` 側の責務。本 skill はあくまで worktree 切り替えと引き継ぎのみを行う。
+
+それ以外 (タスク説明 / Draft / 表記なし) は引き継ぎを行わず、step 6 の完了報告のみで終わる。
+
+### 6. 完了報告
 
 ユーザーには以下を返す:
 
-- 入った worktree のパス (新 cwd)
-- 作成されたブランチ名 (`worktree-` prefix 込み)
-- 「次は何をしますか?」の確認 (issue 番号を伴う依頼なら `issue-implement` を、汎用タスクならそのまま実装に入る、など)
+- 入った worktree のパス (新 cwd) と作成されたブランチ名 (`worktree-` prefix 込み)。
+- **issue Ready で連鎖した場合**: `issue-implement <N>` を起動済みで、続けて issue サイクルが進むこと。
+- **issue Draft / 表記なしの場合**: `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
+- **タスク説明の場合**: 「次は何をしますか?」の確認 (そのまま実装に入る、別 skill を呼ぶ、など)。
 
 ## 失敗時の対応
 
@@ -101,7 +119,8 @@ EnterWorktree({ name: "slack-oauth-flow" })
 
 - **既に worktree 内にいるセッションでの再進入**: 上記 step 1 で no-op として返す。`EnterWorktree` 自体も再進入を拒否するため、二重チェック構造で安全側に倒す。
 - **`wezterm cli spawn` 等の外部タブ管理の自動化**: 並列タブの起動はユーザー操作のまま。skill から wezterm / tmux / iTerm 等を直接操作しない。
-- **`issue-implement` への自動連鎖**: タスク説明に issue 番号が含まれていても、本 skill は worktree 切り替えだけを行い `issue-implement` は呼ばない。issue 起点で進めたい場合はユーザーが明示的に `issue-implement <番号>` を呼ぶ。
+- **Status: Draft / フォーマット不完全な issue 入力時の `issue-implement` 連鎖**: 受け入れ条件が確定していない issue は着手対象外。worktree 作成までで止め、`issue-refine` を案内する。Status の判定軸は `issue-create` の定義 (受け入れ条件の確定度) に従う。
+- **タスク説明 (issue なし) 入力時の `issue-implement` 連鎖**: issue 番号が文字列として登場しても、URL / 番号として明示入力されていなければ `gh issue view` を呼ばずタスク説明として扱う。連鎖は行わない。
 - **Codex CLI / 他 agent 用の fallback 実装**: 本 skill は Claude Code 専用。「Claude Code 限定であること」セクション参照。
 - **`EnterWorktree` の `path` パラメータでクリーン命名を試みる**: `worktree-` prefix 強制を許容する方針 (issue #13 スコープ外)。
 - **`cwt` (dotfiles) 側の削除や移行スクリプト提供**: 本 skill は新規追加のみで、dotfiles の整理はユーザーの別作業。
