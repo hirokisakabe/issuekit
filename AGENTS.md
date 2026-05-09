@@ -14,8 +14,8 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 
 `issue-implement` is the orchestrator of the implementation cycle and **calls** the other skills:
 
-- `issue-implement` → `cross-review` (second-opinion code review after implementation, before commit)
-- `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` after cross-review, before commit)
+- `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` against base...HEAD after implementation+commits, **before** `cross-review` so an acceptance ✗ does not waste a cross-review pass)
+- `issue-implement` → `cross-review` (second-opinion code review after `acceptance-check` passes, before PR creation; review fixes land as additional commits, not amends)
 - `issue-implement` → `worktree-start` (**conditional**, before implementation in `issue-implement` step 4): fires only when **all four** conditions hold — `EnterWorktree` is available (= Claude Code runtime), the session is outside any worktree (`git rev-parse --git-common-dir` == `--git-dir`), the current branch is the repo's default branch (`gh repo view --json defaultBranchRef`), and `Status: Ready`. `Status: Draft` triggers an early abort in step 1, so the worktree is never created for Draft issues.
 - `worktree-start` → `issue-implement` (**only** when input is an issue URL/number with `Status: Ready`; with a generic task description, `Status: Draft`, or unformatted issues it stops at the worktree switch)
 - `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
