@@ -73,9 +73,9 @@ issuekit ships seven Claude Code skills under `skills/`:
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
 | `worktree-start`     | Entry point | **Claude Code only.** Switch the running session into a freshly named git worktree via the `EnterWorktree` tool. Accepts a task description **or** an issue URL/number — when the input is a `Status: Ready` issue, it chains into `issue-implement` after the worktree switch (otherwise it stops at the switch). |
-| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → worktree start → implementation → cross-review → acceptance check → commit → PR → CI.       |
-| `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` after cross-review, before commit. |
-| `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before commit. Called by `issue-implement` after implementation, before acceptance check. |
+| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → worktree start → implementation / commits → acceptance check → cross-review → PR → CI.     |
+| `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` after implementation/commits, before `cross-review`. |
+| `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
 
 `issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only entry point that is Claude Code-specific (`EnterWorktree` is a Claude Code primitive — Codex CLI has no equivalent), so it has no fallback under other agent runtimes. It is also the only entry point that conditionally chains into the orchestrator: when invoked with an issue URL/number whose body has `Status: Ready`, it hands off to `issue-implement` after the worktree switch.
 
@@ -91,10 +91,10 @@ flowchart LR
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
     I --> W[worktree-start]
-    W --> IMPL[issue-implement]
-    IMPL --> CR[cross-review]
-    CR --> AC[acceptance-check]
-    AC --> C[commit + PR + CI]
+    W --> IMPL[issue-implement<br/>implementation + commits]
+    IMPL --> AC[acceptance-check]
+    AC --> CR[cross-review]
+    CR --> C[PR + CI]
 
     classDef entry fill:#e8f4ff,stroke:#3b82f6,color:#1e3a8a
     classDef orch  fill:#fef3c7,stroke:#d97706,color:#78350f
@@ -132,9 +132,9 @@ issuekit shares one core idea with Spec Kit, cc-spex, and superpowers: **make th
 | [Spec Kit](https://github.com/github/spec-kit)     | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Teams that want specs versioned alongside code      |
 | [cc-spex](https://github.com/rhuss/cc-spex)        | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Solo / small team, lighter than Spec Kit            |
 | [superpowers](https://github.com/obra/superpowers) | Skill bundle of general-purpose engineering workflows       | Skill conventions + agent judgment                                                                    | Broad augmentation of Claude Code; not spec-centric |
-| **issuekit**                                       | GitHub issue body (`## 受け入れ条件`, `## スコープ外`, ...) | `acceptance-check` skill mechanically verifies each acceptance criterion as `✓ / ✗ / ?` before commit | Solo dev who already runs an issue-first workflow   |
+| **issuekit**                                       | GitHub issue body (`## 受け入れ条件`, `## スコープ外`, ...) | `acceptance-check` skill mechanically verifies each acceptance criterion as `✓ / ✗ / ?` before PR creation | Solo dev who already runs an issue-first workflow   |
 
-The differentiator that matters most to issuekit's design is the **verification model**. Detailed specs help agents stay on-rails, but spec compliance is itself a problem: the longer the spec, the more places the agent can drift. issuekit's response is structural rather than prescriptive — instead of writing more spec, write fewer but **mechanically verifiable** acceptance criteria, and have a dedicated skill (`acceptance-check`) check them before commit. The spec stays small; the verification stays honest.
+The differentiator that matters most to issuekit's design is the **verification model**. Detailed specs help agents stay on-rails, but spec compliance is itself a problem: the longer the spec, the more places the agent can drift. issuekit's response is structural rather than prescriptive — instead of writing more spec, write fewer but **mechanically verifiable** acceptance criteria, and have a dedicated skill (`acceptance-check`) check them before PR creation. The spec stays small; the verification stays honest.
 
 ---
 
