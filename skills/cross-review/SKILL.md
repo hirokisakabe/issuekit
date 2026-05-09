@@ -12,6 +12,12 @@ description: 実装完了後、commit 前に別の AI (Codex CLI または Claud
 - 実装が完了した後、commit 前に呼び出す（cycle 内では cross-review → acceptance-check → commit → PR の順）
 - ユーザーが明示的にレビューを依頼した場合
 
+## 依存 / 互換性
+
+- **Codex CLI**: 0.125.0 以降で動作確認済み (`brew install --cask codex`)。codex backend では `codex exec` + stdin diff pipe 方式を採用しており、`codex exec review` の `--base / --uncommitted / [PROMPT]` 三者排他 (0.125.0 以降の制約) を回避している。0.125.0 未満でも `codex exec [PROMPT]` への stdin pipe は基本機能として古くから存在するため動作する想定だが、明示的なサポート下限は 0.125.0 とする。`codex exec review` のサブコマンド固有の挙動には依存しない。
+- **Claude CLI**: claude-self backend が利用する `claude --bare -p` のために必要 (`npm install -g @anthropic-ai/claude-code`)。stdin の 10MB 上限は Claude CLI v2.1.128 以降で明示的にエラー停止する (4. 分割レビューに切り替える)。
+- **`gh` CLI**: default branch 解決に必要。未認証 / repo 外実行では本 skill が明示的に停止する (失敗時の対応参照)。
+
 ## Backend 選択
 
 ### 環境変数で明示指定する場合
@@ -59,7 +65,7 @@ esac
 
 ### 1. base ref の確定 (backend 共通)
 
-リポジトリの default branch 名を動的に取得し、ローカルで実際に解決可能な ref を `BASE_REF` に確定する。`BASE_BRANCH` は codex backend の `--base` 用、`BASE_REF` は `git diff` 用に使い分ける。
+リポジトリの default branch 名を動的に取得し、ローカルで実際に解決可能な ref を `BASE_REF` に確定する。`BASE_REF` は両 backend が `git diff "$BASE_REF"...HEAD` の base として共通で使う。
 
 ```bash
 BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
@@ -75,7 +81,7 @@ else
 fi
 ```
 
-`master` / `develop` / `trunk` を default branch とするリポジトリでも、この `BASE_BRANCH` / `BASE_REF` 経由で同じ手順がそのまま動く。`main` への暗黙フォールバックは行わない（後述「失敗時の対応」参照）。
+`master` / `develop` / `trunk` を default branch とするリポジトリでも、この `BASE_REF` 経由で同じ手順がそのまま動く。`main` への暗黙フォールバックは行わない（後述「失敗時の対応」参照）。
 
 ### 2. 差分の確認 (backend 共通)
 
@@ -100,8 +106,21 @@ git diff --cached
 
 #### 3-a. backend = `codex` の場合
 
+`codex exec` に diff を stdin から流し込み、レビュー指示を `[PROMPT]` 引数として渡す。stdin が piped されかつ `[PROMPT]` も指定された場合、codex は stdin を `<stdin>` ブロックとして prompt に append する仕様 (`codex exec --help` 参照)。`codex exec review --base / --uncommitted / [PROMPT]` の三者排他 (codex-cli 0.125.0 以降) を回避するため、`review` サブコマンドではなく汎用の `codex exec` を使う。claude-self backend と同じ「diff pipe + custom prompt」の構造に揃え、保守コストも下げている。
+
+`--sandbox read-only` を明示することで、汎用 `codex exec` を使いながらも cross-review の「報告のみ・自動修正しない」原則を CLI レイヤーで担保する (`--full-auto` は workspace-write が付くため使わない)。
+
 ```bash
-codex exec review --base "$BASE_BRANCH" --uncommitted --model gpt-5.4 --full-auto "First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards.
+{
+  echo "=== Committed diff ($BASE_REF...HEAD) ==="
+  git diff "$BASE_REF"...HEAD
+  echo
+  echo "=== Unstaged diff ==="
+  git diff
+  echo
+  echo "=== Staged diff ==="
+  git diff --cached
+} | codex exec --sandbox read-only --model gpt-5.4 "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff is supplied via stdin (codex wraps it as a <stdin> block). First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards.
 
 Then evaluate the diff from these perspectives:
 
@@ -169,8 +188,16 @@ git diff --cached --name-only
 
 #### 4-a. backend = `codex`
 
+`FILE_PATH` でファイルパスを変数化し、空白や shell メタ文字を含むファイル名でも壊れないようにする (3-a と同じく `--sandbox read-only` で書き込みを禁止)。`<file-path>` は placeholder で、実利用時は単一引用符付きで実パスに置き換える (例: `FILE_PATH='skills/cross-review/SKILL.md'`)。
+
 ```bash
-codex exec review --base "$BASE_BRANCH" --uncommitted --model gpt-5.4 --full-auto "Review the changes to <file-path>.
+FILE_PATH='<file-path>'
+{
+  echo "=== Diff for $FILE_PATH ==="
+  git diff "$BASE_REF"...HEAD -- "$FILE_PATH"
+  git diff -- "$FILE_PATH"
+  git diff --cached -- "$FILE_PATH"
+} | codex exec --sandbox read-only --model gpt-5.4 "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff for a single file is supplied via stdin (codex wraps it as a <stdin> block). Review the changes to $FILE_PATH.
 
 Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation.
 
@@ -209,8 +236,9 @@ backend のレビュー結果を確認し、ユーザーへ報告する。
 ## 失敗時の対応
 
 - **backend CLI が見つからない場合**: `command -v` 結果と `CROSS_REVIEW_BACKEND` の値を踏まえて明示的に停止する。`codex` 未導入なら `brew install --cask codex` を、`claude` 未導入なら `npm install -g @anthropic-ai/claude-code` を案内する。Codex CLI 初回利用時は `codex login` で OpenAI アカウント認証が必要。Claude CLI 初回利用時は `claude` を一度起動して認証する。
-- **default branch の取得失敗時**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` が空文字を返す、もしくは `gh` がエラーを返した場合は、その時点で停止しエラーメッセージを出す。`main` への暗黙フォールバックは行わない（誤った base に対する diff / `--base` 指定でレビュー結果が破綻するため）。よくある原因は、`gh` 未認証 (`gh auth status` で確認) / git repo 外での実行 / リモートが GitHub 以外。原因を解消してから再実行する。
+- **default branch の取得失敗時**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` が空文字を返す、もしくは `gh` がエラーを返した場合は、その時点で停止しエラーメッセージを出す。`main` への暗黙フォールバックは行わない（誤った base に対する diff でレビュー結果が破綻するため）。よくある原因は、`gh` 未認証 (`gh auth status` で確認) / git repo 外での実行 / リモートが GitHub 以外。原因を解消してから再実行する。
 - **base ref の resolve 失敗時**: `BASE_BRANCH` 名は取れたが、ローカルに該当 ref も `origin/$BASE_BRANCH` も存在しない場合（例: 浅い clone / default branch を local 側で削除した worktree 等）も停止する。`git fetch origin` で remote-tracking ref を取得すれば多くの場合解消する。
+- **codex backend で `codex exec review --base ... [PROMPT]` 系のエラーに遭遇した場合**: 古い呼び出し方式が残ったローカル環境の可能性が高い。本 skill は 0.125.0 の三者排他制約を踏まえて `codex exec` + stdin diff pipe に移行済み。SKILL.md を最新版に更新するか、shell history に残った古いコマンドを破棄する。
 - **差分がない場合**: レビュー不要としてスキップする。
 - **backend がタイムアウトした場合**: 差分を分割して再試行する（ステップ 4）。
 - **claude-self backend で stdin が 10MB を超える場合**: Claude CLI が明示的にエラーで停止するので、ステップ 4 の分割レビューに切り替える。
@@ -221,3 +249,4 @@ backend のレビュー結果を確認し、ユーザーへ報告する。
 - レビュー結果の自動修正適用（報告のみ）。
 - backend 出力フォーマットの統一（各 backend の出力をそのまま使う）。
 - 追加 backend (Gemini / OpenAI 直 API 等) の実装。構造を残しつつ別 issue 化。
+- codex-cli 0.124 系以前への downgrade 案内。upstream の意思決定に追従しない一時しのぎになり、依存 CLI のバージョン分岐が発散するため採らない (`codex exec` + stdin diff pipe で 0.125.0 以降を正面突破する)。
