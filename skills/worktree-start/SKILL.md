@@ -1,6 +1,6 @@
 ---
 name: worktree-start
-description: Claude Code 専用。素の `claude` で起動した直後に、タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。`cwt` (dotfiles の wezterm + worktrunk + claude 起動 alias) の代替として、issue 起点・タスク起点どちらでも並列セッション立ち上げに使う。issue URL / 番号入力で Status: Ready の場合は worktree 切り替え後に `issue-implement` へ自動連鎖する。
+description: Claude Code 専用。素の `claude` で起動した直後に、タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。issue 起点・タスク起点どちらでも並列セッション立ち上げに使う。issue URL / 番号入力で Status: Ready の場合は worktree 切り替え後に `issue-implement` へ自動連鎖する。
 ---
 
 # Worktree Start Skill
@@ -11,7 +11,7 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 
 - **含む**: タスク説明 / issue URL / issue 番号からのブランチ名生成 (LLM 命名 or ユーザー明示指定の受領)、`EnterWorktree` ツール呼び出しによるセッション cwd 切り替え、既存 worktree 内での no-op 判定、issue 入力時の Status 判定と Ready 時の `issue-implement` への引き継ぎ。
 - **含まない**:
-  - **`wezterm cli spawn` 等の外部タブ管理**: 並列タブの起動はユーザー操作のまま。
+  - **外部タブ管理ツール (ターミナルマルチプレクサ等) との連携**: 並列タブの起動はユーザー操作のまま。
   - **Codex CLI / 他 agent 用の fallback 実装**: `EnterWorktree` は Claude Code 固有で、他 runtime には対応 primitive が存在しない。
   - **`EnterWorktree` の `path` パラメータでクリーン命名する回避策**: `worktree-` prefix 強制を許容する方針 (issue #13 スコープ外)。
   - **作成済み worktree のクリーンアップ**: `ExitWorktree` / `git worktree remove` 等は呼ばない。
@@ -19,9 +19,9 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 
 ## 利用タイミング
 
-- ユーザーが「worktree でタスクを始めたい」「並列タブで別タスクを切り出したい」「cwt の代わり」のような起動指示を与えたとき。
+- ユーザーが「worktree でタスクを始めたい」「並列タブで別タスクを切り出したい」のような起動指示を与えたとき。
 - ユーザーが **issue URL** (`https://github.com/<owner>/<repo>/issues/<N>`) または **issue 番号** をセッション冒頭に貼り、新規 worktree で着手したいとき。
-- すでに wezterm 等で素の `claude` が起動しており、これから worktree に入りたい状況。
+- すでにターミナルエミュレータで素の `claude` が起動しており、これから worktree に入りたい状況。
 - `issuekit:issue-implement` skill (APM plain-skill mode では `issue-implement`) の冒頭ステップから呼ばれたとき。この場合は **Status / Depends on / 親 issue の確認は上流で完了済み**であり、本 skill 側では入力を「タスク説明モード」(後述 step 2) として扱って worktree 切り替え機能のみを提供する。詳細は後述「上流 skill (`issue-implement`) からの呼び出し」を参照。
 
 ## Claude Code 限定であること
@@ -131,10 +131,9 @@ step 2 で **issue URL / 番号 + `Status: Ready`** だった場合のみ、`iss
 ## やらないこと
 
 - **既に worktree 内にいるセッションでの再進入**: 上記 step 1 で no-op として返す。`EnterWorktree` 自体も再進入を拒否するため、二重チェック構造で安全側に倒す。
-- **`wezterm cli spawn` 等の外部タブ管理の自動化**: 並列タブの起動はユーザー操作のまま。skill から wezterm / tmux / iTerm 等を直接操作しない。
+- **外部タブ / ペインの自動起動**: 並列タブの起動はユーザー操作のまま。skill から外部のターミナルマルチプレクサ等を直接操作しない。
 - **Status: Draft / フォーマット不完全な issue 入力時の `issue-implement` 連鎖**: 受け入れ条件が確定していない issue は着手対象外。worktree 作成までで止め、`issue-refine` を案内する。Status の判定軸は `issue-create` の定義 (受け入れ条件の確定度) に従う。
 - **タスク説明 (issue なし) 入力時の `issue-implement` 連鎖**: issue 番号が文字列として登場しても、URL / 番号として明示入力されていなければ `gh issue view` を呼ばずタスク説明として扱う。連鎖は行わない。
 - **Codex CLI / 他 agent 用の fallback 実装**: 本 skill は Claude Code 専用。「Claude Code 限定であること」セクション参照。
 - **`EnterWorktree` の `path` パラメータでクリーン命名を試みる**: `worktree-` prefix 強制を許容する方針 (issue #13 スコープ外)。
-- **`cwt` (dotfiles) 側の削除や移行スクリプト提供**: 本 skill は新規追加のみで、dotfiles の整理はユーザーの別作業。
 - **作成済み worktree のクリーンアップ**: `ExitWorktree` / `git worktree remove` 等は呼ばない。worktree のライフサイクル管理はユーザー責務。
