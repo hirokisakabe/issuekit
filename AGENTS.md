@@ -69,14 +69,14 @@ These strings are not localizable in the current implementation. Forking is requ
 
 `cross-review` supports two backends, selected via the `CROSS_REVIEW_BACKEND` environment variable:
 
-- `codex` — OpenAI Codex CLI (`codex exec review`). Intended for "implemented with Claude Code → reviewed by GPT".
+- `codex` — OpenAI Codex CLI (`codex exec` with stdin diff pipe; the `review` sub-command is avoided because of the 0.125.0 `--base` / `--uncommitted` / `[PROMPT]` mutual exclusion). Intended for "implemented with Claude Code → reviewed by GPT".
 - `claude-self` — Claude CLI headless (`claude --bare -p` with stdin diff). Intended for "implemented with Codex CLI / Cursor → reviewed by Claude".
 
 When the env var is unset, the skill falls back to `command -v` auto-detection (`codex` first, then `claude`). When the env var is **set** but the corresponding CLI is missing, the skill fails explicitly — there is no silent fallback to the other backend, since that would silently change the reviewer model the user asked for.
 
 ## Cross-review base branch resolution
 
-`cross-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and passes the result to `git diff` (both backends) and `codex exec review --base` (codex backend only). `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
+`cross-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and feeds the result into `git diff "$BASE_REF"...HEAD` for both backends (the diff is piped to `codex exec` / `claude --bare -p` via stdin). `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
 
 ## External dependencies
 
