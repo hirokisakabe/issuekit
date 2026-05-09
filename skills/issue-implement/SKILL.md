@@ -1,6 +1,6 @@
 ---
 name: issue-implement
-description: GitHub issue 番号を起点に、実装 → cross-review → 受け入れ条件チェック → commit → PR 作成 → CI 確認まで一気通貫で進める。ユーザーから「issue #N を実装して」「#N お願い」などの依頼があった場合に使用する。
+description: GitHub issue 番号を起点に、Status 確認 → worktree 化 → 実装 → cross-review → 受け入れ条件チェック → commit → PR 作成 → CI 確認まで一気通貫で進める。ユーザーから「issue #N を実装して」「#N お願い」などの依頼があった場合に使用する。
 ---
 
 # Issue Implement Skill

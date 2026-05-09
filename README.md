@@ -73,9 +73,9 @@ issuekit ships seven Claude Code skills under `skills/`:
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
 | `worktree-start`     | Entry point | **Claude Code only.** Switch the running session into a freshly named git worktree via the `EnterWorktree` tool. Accepts a task description **or** an issue URL/number — when the input is a `Status: Ready` issue, it chains into `issue-implement` after the worktree switch (otherwise it stops at the switch). Replaces the dotfiles `cwt` / `wt` flow. |
-| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → implementation → cross-review → acceptance check → commit → PR → CI.                         |
-| `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` before commit. |
-| `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before commit. Called by `issue-implement` after implementation. |
+| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → worktree start → implementation → cross-review → acceptance check → commit → PR → CI.       |
+| `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` after cross-review, before commit. |
+| `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before commit. Called by `issue-implement` after implementation, before acceptance check. |
 
 `issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only entry point that is Claude Code-specific (`EnterWorktree` is a Claude Code primitive — Codex CLI has no equivalent), so it has no fallback under other agent runtimes. It is also the only entry point that conditionally chains into the orchestrator: when invoked with an issue URL/number whose body has `Status: Ready`, it hands off to `issue-implement` after the worktree switch.
 
@@ -90,8 +90,8 @@ flowchart LR
     A[issue-create] --> I[(GitHub issue<br/>Status: Ready)]
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
-    W[worktree-start] -- "issue URL + Ready" --> IMPL
-    I --> IMPL[issue-implement]
+    I --> W[worktree-start]
+    W --> IMPL[issue-implement]
     IMPL --> CR[cross-review]
     CR --> AC[acceptance-check]
     AC --> C[commit + PR + CI]
