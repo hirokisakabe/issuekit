@@ -16,8 +16,14 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 
 - `issue-implement` → `cross-review` (second-opinion code review after implementation, before commit)
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` after cross-review, before commit)
+- `issue-implement` → `worktree-start` (**conditional**, before implementation in `issue-implement` step 4): fires only when **all four** conditions hold — `EnterWorktree` is available (= Claude Code runtime), the session is outside any worktree (`git rev-parse --git-common-dir` == `--git-dir`), the current branch is the repo's default branch (`gh repo view --json defaultBranchRef`), and `Status: Ready`. `Status: Draft` triggers an early abort in step 1, so the worktree is never created for Draft issues.
 - `worktree-start` → `issue-implement` (**only** when input is an issue URL/number with `Status: Ready`; with a generic task description, `Status: Draft`, or unformatted issues it stops at the worktree switch)
 - `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
+
+The `issue-implement ↔ worktree-start` edge is **bidirectional but not looping**:
+
+- When `worktree-start` is the entry point and chains forward into `issue-implement`, the latter would re-invoke `worktree-start`, but the second call hits the "already inside a worktree" no-op check and returns immediately.
+- When `issue-implement` is the entry point and calls `worktree-start` from step 4, it must pass a pre-generated branch-name slug (`<title>-<issue番号>`), **not** the issue number. Passing the number would re-enter `worktree-start`'s Status-detection path and re-chain back into `issue-implement` unnecessarily. The recursion would still terminate via the no-op check, but the redundant invocation is avoided by routing through the task-description mode of `worktree-start`.
 
 When editing one skill, check whether others reference it. Cross-references appear in two forms:
 
