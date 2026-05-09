@@ -108,7 +108,7 @@ EnterWorktree({ name: "slack-oauth-flow-42" })
 step 2 で **issue URL / 番号 + `Status: Ready`** だった場合のみ、`issuekit:issue-implement` skill (APM plain-skill mode では `issue-implement`) を該当 issue 番号で呼び出し、issue 駆動の実装サイクルへ引き継ぐ。
 
 - 引き継ぎ前にユーザーへの確認は挟まない。Ready は「着手 OK」のシグナルとして扱う方針 (`issue-create` の Status 定義に従う)。
-- 連鎖後の Status / Depends on / 親 issue 確認・実装・cross-review・受け入れ条件チェック・commit・PR・CI は `issue-implement` 側の責務。本 skill はあくまで worktree 切り替えと引き継ぎのみを行う。
+- 連鎖後の Status / Depends on / 親 issue 確認・実装と適宜 commit・受け入れ条件チェック・cross-review・PR・CI は `issue-implement` 側の責務。本 skill はあくまで worktree 切り替えと引き継ぎのみを行う。
 
 それ以外 (タスク説明 / Draft / 表記なし) は引き継ぎを行わず、step 6 の完了報告のみで終わる。
 
