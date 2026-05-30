@@ -13,25 +13,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Detect version changes
         id: detect
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           changed_skills=""
           new_version=""
+          version_conflict=false
 
           for skill_file in skills/*/SKILL.md; do
             skill_name=$(basename "$(dirname "$skill_file")")
             current=$(grep '^version:' "$skill_file" | sed 's/version:[[:space:]]*//')
-            prev=$(git show HEAD~1:"$skill_file" 2>/dev/null | grep '^version:' | sed 's/version:[[:space:]]*//' || true)
+            prev=$(git show "${BEFORE_SHA}:${skill_file}" 2>/dev/null | grep '^version:' | sed 's/version:[[:space:]]*//' || true)
 
             if [ -n "$current" ] && [ "$current" != "$prev" ]; then
               echo "Version changed: $skill_name $prev -> $current"
+              if [ -n "$new_version" ] && [ "$new_version" != "$current" ]; then
+                echo "Error: version conflict detected ($new_version vs $current). Multiple skills bumped to different versions simultaneously." >&2
+                version_conflict=true
+              fi
               changed_skills="${changed_skills}${skill_name} "
               new_version="$current"
             fi
           done
+
+          if [ "$version_conflict" = "true" ]; then
+            exit 1
+          fi
 
           echo "changed_skills=${changed_skills}" >> "$GITHUB_OUTPUT"
           echo "new_version=${new_version}" >> "$GITHUB_OUTPUT"
