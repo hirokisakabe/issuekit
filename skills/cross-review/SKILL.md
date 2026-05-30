@@ -1,7 +1,7 @@
 ---
 name: cross-review
 description: 実装・commit 後、`acceptance-check` 通過後・PR 作成前に別の AI (Codex CLI または Claude CLI headless) に diff を渡してセカンドオピニオンのコードレビューを得る。backend は環境変数 `CROSS_REVIEW_BACKEND` で `codex` / `claude-self` から選択でき、未指定時は利用可能な CLI を自動検出する。
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Cross Review Skill
@@ -27,7 +27,7 @@ version: 1.0.0
 
 | 値             | 使用 CLI            | 想定ユースケース                                          |
 | -------------- | ------------------- | --------------------------------------------------------- |
-| `codex`        | OpenAI Codex CLI    | Claude Code から実装し、別モデル (GPT 系) に交差レビュー  |
+| `codex`        | OpenAI Codex CLI    | Claude Code 等から実装し、別モデル (GPT 系) に交差レビュー |
 | `claude-self`  | Claude CLI headless | Codex CLI / Cursor 等から実装し、Claude にレビュー依頼    |
 
 ### 未指定時の自動検出

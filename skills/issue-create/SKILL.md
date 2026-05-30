@@ -1,12 +1,12 @@
 ---
 name: issue-create
 description: GitHub issue を統一フォーマットで起票する。ユーザーが「issue を立てて」「issue 化して」などを依頼したとき、または作業中に課題を issue として残したいときに使用する。
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Issue Create Skill
 
-Claude Code 経由で GitHub issue を起票する際のフォーマットと手順。
+GitHub issue を起票する際のフォーマットと手順。
 
 ## 基本方針
 
@@ -38,7 +38,7 @@ Status の判定軸は **受け入れ条件の確定度** 一本である。言�
 
 ### 着手時の確認
 
-着手依頼を受けた際、Claude Code は **実装を始める前に必ずこのステータスを確認する**。`Status: Draft` の場合は実装に着手せず、ユーザーに受け入れ条件の確認を行うこと。
+着手依頼を受けた際、agent は **実装を始める前に必ずこのステータスを確認する**。`Status: Draft` の場合は実装に着手せず、ユーザーに受け入れ条件の確認を行うこと。
 
 ## 依存 issue (Depends on)
 
@@ -147,7 +147,7 @@ Depends on: #123, #124 # 依存がある場合のみ。無ければ行ごと省�
 - 子 issue の本文には必ず以下を含める。
   - 親 issue へのリンク（例: `親: #123`）
   - 「**実装前に親 issue を必ず読むこと**」の明記
-- **注意:** 子 issue を Claude Code に渡して実装依頼する際、親 issue を読まずに進めてしまうことがある。子 issue を扱う際は最初に親 issue を `gh issue view` で取得し、文脈を踏まえてから着手する。
+- **注意:** 子 issue を agent に渡して実装依頼する際、親 issue を読まずに進めてしまうことがある。子 issue を扱う際は最初に親 issue を `gh issue view` で取得し、文脈を踏まえてから着手する。
 
 子 issue 本文テンプレ例:
 
