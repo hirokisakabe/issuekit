@@ -6,7 +6,7 @@ This file provides guidance to coding agents (Claude Code, Codex, etc.) when wor
 
 ## What this repository is
 
-issuekit is a **Claude Code skill bundle**, not an application. It contains 7 skills as `skills/<name>/SKILL.md` markdown files, distributed through skills.sh (`npx skills add hirokisakabe/issuekit`). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
+issuekit is a **Claude Code skill bundle**, not an application. It contains 7 skills as `skills/<name>/SKILL.md` markdown files, distributed via `gh skill install hirokisakabe/issuekit` (version-pinnable via GitHub Releases) and `npx skills add hirokisakabe/issuekit` (always HEAD). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
 
 The bundle codifies an **issue-driven development** workflow where the GitHub issue body is the rich plan (with `Status: Ready/Draft`, `## 受け入れ条件`, `## スコープ外`, `Depends on:`, `親: #N`), and the repository contains only durable code. See `README.md` for the philosophy and the comparison vs. Spec Kit / cc-spex / superpowers.
 

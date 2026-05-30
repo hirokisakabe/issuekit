@@ -34,10 +34,31 @@ A Claude Code skill bundle that treats each GitHub issue as the canonical "rich 
 
 ## 📦 Install
 
-issuekit is distributed via [skills.sh](https://skills.sh) ([vercel-labs/skills](https://github.com/vercel-labs/skills)).
+### via `gh skill` (recommended — supports version pinning)
 
 ```bash
-# Install all seven skills
+# Install a skill interactively (choose from the list)
+gh skill install hirokisakabe/issuekit
+
+# Install a specific skill (e.g. issue-implement)
+gh skill install hirokisakabe/issuekit issue-implement
+
+# Pin to a specific version
+gh skill install hirokisakabe/issuekit issue-implement@v1.0.0
+
+# Or use the --pin flag
+gh skill install hirokisakabe/issuekit issue-implement --pin v1.0.0
+
+# Install for Claude Code at user scope explicitly
+gh skill install hirokisakabe/issuekit issue-implement --agent claude-code --scope user
+```
+
+The install location depends on `--agent` and `--scope`; for Claude Code at user scope, skills land in `~/.claude/skills/`. Version tags follow [GitHub Releases](https://github.com/hirokisakabe/issuekit/releases).
+
+### via `npx skills` (Claude Code, Codex CLI, Cursor, Gemini, …)
+
+```bash
+# Install all seven skills (always installs HEAD — version pinning not yet supported)
 npx skills add hirokisakabe/issuekit
 
 # Or install a specific skill only

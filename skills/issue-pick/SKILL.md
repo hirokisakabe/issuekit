@@ -1,6 +1,7 @@
 ---
 name: issue-pick
 description: 複数の open issue から「次に着手すべきもの」をユーザーと相談する read-only skill。各 issue を統一観点 (影響範囲 / 依存・blocker / 規模 / 緊急度) で整理し、推奨 1 件 + 補欠 1〜2 件を理由とともに提示する。state 変更や ranking の永続化はしない。
+version: 1.0.0
 ---
 
 # Issue Pick Skill
