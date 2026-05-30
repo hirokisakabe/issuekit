@@ -142,6 +142,10 @@ So issuekit treats the **GitHub issue as the rich plan** for the work, and the r
 
 This is opinionated. issuekit will not be a good fit if you want plans to live next to the code, or if your team's workflow expects spec markdown checked in.
 
+More precisely, issuekit operates on the **volatile layer** only — each GitHub issue captures a single unit of intent (what to build, acceptance criteria, scope boundary). That plan expires when the issue closes.
+
+The **durable layer** — architecture decisions, domain models, ADRs, and design context that outlives individual issues — is explicitly outside issuekit's scope. Where that knowledge lives (`docs/`, `AGENTS.md`, an external wiki, or nowhere at all) is entirely your call; issuekit neither prescribes nor precludes any arrangement.
+
 ---
 
 ## 🆚 Comparison with related frameworks
