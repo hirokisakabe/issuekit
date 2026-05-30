@@ -1,6 +1,7 @@
 ---
 name: issue-create
 description: GitHub issue を統一フォーマットで起票する。ユーザーが「issue を立てて」「issue 化して」などを依頼したとき、または作業中に課題を issue として残したいときに使用する。
+version: 1.0.0
 ---
 
 # Issue Create Skill
