@@ -131,6 +131,7 @@ Then evaluate the diff from these perspectives:
 5. **Performance**: Are there unnecessary computations or inefficient patterns?
 6. **Tests**: If the project has tests, is coverage adequate for the changes?
 7. **Documentation**: Are related docs (README, CLAUDE.md, AGENTS.md, inline comments, etc.) updated to reflect the changes? Flag missing or outdated documentation.
+8. **Related-file consistency**: When a file changes, are sibling/peer files that must stay in sync also updated? Examples: cross-references between skills, generated files, lock files, schema and its migration, config and its documentation. Flag any consistency gap where one side of a known pair was changed but the other was not.
 
 Output format (respond in Japanese):
 - List each finding with severity: critical / warning / info
@@ -165,6 +166,7 @@ Output format (respond in Japanese):
 5. **Performance**: Are there unnecessary computations or inefficient patterns?
 6. **Tests**: If the project has tests, is coverage adequate for the changes?
 7. **Documentation**: Are related docs (README, CLAUDE.md, AGENTS.md, inline comments, etc.) updated to reflect the changes? Flag missing or outdated documentation.
+8. **Related-file consistency**: When a file changes, are sibling/peer files that must stay in sync also updated? Examples: cross-references between skills, generated files, lock files, schema and its migration, config and its documentation. Flag any consistency gap where one side of a known pair was changed but the other was not.
 
 Output format (respond in Japanese):
 - List each finding with severity: critical / warning / info
@@ -199,7 +201,7 @@ FILE_PATH='<file-path>'
   git diff --cached -- "$FILE_PATH"
 } | codex exec --sandbox read-only --model gpt-5.4 "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff for a single file is supplied via stdin (codex wraps it as a <stdin> block). Review the changes to $FILE_PATH.
 
-Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation.
+Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation, Related-file consistency.
 
 Output (respond in Japanese):
 - Each finding with severity (critical / warning / info), file path, line number, description, fix suggestion
@@ -219,7 +221,7 @@ Output (respond in Japanese):
   --append-system-prompt "You are a senior code reviewer providing a second opinion. The diff for a single file is supplied via stdin." \
   "Review the changes to <file-path>.
 
-Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation.
+Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation, Related-file consistency.
 
 Output (respond in Japanese):
 - Each finding with severity (critical / warning / info), file path, line number, description, fix suggestion
