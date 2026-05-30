@@ -8,7 +8,7 @@ An Agent Skills bundle that treats each GitHub issue as the canonical "rich plan
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Install via skills.sh](https://img.shields.io/badge/install-skills.sh-black)](https://skills.sh)
-[![Claude Code](https://img.shields.io/badge/Claude_Code-skill_bundle-D97757)](https://docs.claude.com/en/docs/claude-code)
+[![Agent Skills](https://img.shields.io/badge/Agent_Skills-bundle-D97757)](https://skills.sh)
 
 </div>
 
