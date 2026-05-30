@@ -1,7 +1,7 @@
 ---
 name: worktree-start
 description: "Claude Code 専用。素の `claude` で起動した直後に、タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。issue 起点・タスク起点どちらでも並列セッション立ち上げに使う。issue URL / 番号入力で Status: Ready の場合は worktree 切り替え後に `issue-implement` へ自動連鎖する。"
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Worktree Start Skill
