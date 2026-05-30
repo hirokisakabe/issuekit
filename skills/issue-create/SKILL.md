@@ -1,7 +1,7 @@
 ---
 name: issue-create
-description: GitHub issue を統一フォーマットで起票する。ユーザーが「issue を立てて」「issue 化して」などを依頼したとき、または作業中に課題を issue として残したいときに使用する。
-version: 1.0.1
+description: "Invoke for any request to create, file, open, or record a new GitHub issue. Trigger on:\n- Direct creation: 「issue 作って」「起票して」「issue 立て(といて)」「issue 化して」「issue 作れる?」\n- Record intent: 「issue に残したい/残しておいてほしい」「issue として残しておきたい」\n- Issue types: bug reports (with repro steps), feature requests, refactoring tasks, doc fixes, code-review findings to track later\n\nDo NOT trigger for viewing, listing, searching, or implementing existing issues."
+version: 1.0.2
 ---
 
 # Issue Create Skill
