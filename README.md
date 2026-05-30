@@ -4,7 +4,7 @@
 
 ### _Issue-driven development for AI coding agents._
 
-A Claude Code skill bundle that treats each GitHub issue as the canonical "rich plan" for a unit of work — so volatile specs stay out of your repository and only durable code gets versioned.
+An Agent Skills bundle that treats each GitHub issue as the canonical "rich plan" for a unit of work — so volatile specs stay out of your repository and only durable code gets versioned.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Install via skills.sh](https://img.shields.io/badge/install-skills.sh-black)](https://skills.sh)
@@ -86,7 +86,7 @@ issuekit assumes the following tools are available on the host:
 
 ## 🧩 Skills
 
-issuekit ships seven Claude Code skills under `skills/`:
+issuekit ships seven skills under `skills/`:
 
 | Skill                | Role        | Description                                                                                                                                            |
 | -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
