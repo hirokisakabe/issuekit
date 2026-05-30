@@ -1,6 +1,6 @@
 ---
 paths:
-  - "skills/**/*.md"
+  - "skills/*/SKILL.md"
 ---
 
 `skills/` 配下のファイルを変更した場合、PR を作成する前に変更した SKILL.md の frontmatter `version:` を必ずバンプすること。
@@ -19,4 +19,4 @@ semver (`MAJOR.MINOR.PATCH`) に従う:
 
 ## 理由
 
-`version:` の変化を GHA (`.github/workflows/release.yml`) が検知し、自動で GitHub Release を作成する。バンプしないままマージすると新バージョンのリリースが作成されず、`gh skill install hirokisakabe/issuekit@<version>` でのバージョン固定インストールが機能しなくなる。
+`version:` の変化を GHA (`.github/workflows/release.yml`) が検知し、自動で GitHub Release を作成する。バンプしないままマージすると新バージョンのリリースが作成されず、`gh skill install hirokisakabe/issuekit <skill-name>@v<version>` でのバージョン固定インストールが機能しなくなる。
