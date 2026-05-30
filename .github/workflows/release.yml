@@ -1,0 +1,58 @@
+name: Auto Release on SKILL.md Version Change
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect version changes
+        id: detect
+        run: |
+          changed_skills=""
+          new_version=""
+
+          for skill_file in skills/*/SKILL.md; do
+            skill_name=$(basename "$(dirname "$skill_file")")
+            current=$(grep '^version:' "$skill_file" | sed 's/version:[[:space:]]*//')
+            prev=$(git show HEAD~1:"$skill_file" 2>/dev/null | grep '^version:' | sed 's/version:[[:space:]]*//' || true)
+
+            if [ -n "$current" ] && [ "$current" != "$prev" ]; then
+              echo "Version changed: $skill_name $prev -> $current"
+              changed_skills="${changed_skills}${skill_name} "
+              new_version="$current"
+            fi
+          done
+
+          echo "changed_skills=${changed_skills}" >> "$GITHUB_OUTPUT"
+          echo "new_version=${new_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: steps.detect.outputs.new_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.detect.outputs.new_version }}
+          CHANGED_SKILLS: ${{ steps.detect.outputs.changed_skills }}
+        run: |
+          TAG="v${NEW_VERSION}"
+
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping"
+            exit 0
+          fi
+
+          NOTES="## Changed Skills"
+          for skill in ${CHANGED_SKILLS}; do
+            NOTES="${NOTES}"$'\n'"- ${skill}/SKILL.md"
+          done
+
+          gh release create "$TAG" --title "$TAG" --notes "$NOTES"
