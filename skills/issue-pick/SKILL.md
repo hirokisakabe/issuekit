@@ -1,7 +1,7 @@
 ---
 name: issue-pick
-description: 複数の open issue から「次に着手すべきもの」をユーザーと相談する read-only skill。各 issue を統一観点 (影響範囲 / 依存・blocker / 規模 / 緊急度) で整理し、推奨 1 件 + 補欠 1〜2 件を理由とともに提示する。state 変更や ranking の永続化はしない。
-version: 1.0.0
+description: "Use when the user has NOT yet decided which issue to work on and needs help choosing. This is the pre-decision advisory phase: the user is weighing multiple open issues and wants structured guidance — not implementation. Key triggers: asking which issue to prioritize or tackle next, identifying which issues are blocked vs. ready to start independently, selecting issues that fit limited capacity (small/high-impact), or finding independent issues for parallel worktree sessions. The user's state is \"I have several candidates and don't know where to start.\" Provides ranked recommendation (1 pick + 1-2 alternates) across impact/dependencies/size/urgency — read-only, no state changes."
+version: 1.0.1
 ---
 
 # Issue Pick Skill
