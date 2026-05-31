@@ -1,0 +1,49 @@
+name: Skill Version Consistency Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'skills/*/SKILL.md'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check skill version consistency
+        run: |
+          BASE=$(git merge-base origin/main HEAD)
+          changed_skills=""
+          new_version=""
+          version_conflict=false
+
+          for skill_file in skills/*/SKILL.md; do
+            skill_name=$(basename "$(dirname "$skill_file")")
+            current=$(grep '^version:' "$skill_file" | sed 's/version:[[:space:]]*//')
+            prev=$(git show "${BASE}:${skill_file}" 2>/dev/null | grep '^version:' | sed 's/version:[[:space:]]*//' || true)
+
+            if [ -n "$current" ] && [ "$current" != "$prev" ]; then
+              echo "Version changed: $skill_name $prev -> $current"
+              if [ -n "$new_version" ] && [ "$new_version" != "$current" ]; then
+                echo "::error::Version conflict: $skill_name bumped to $current but another skill bumped to $new_version. All changed skills must use the same version." >&2
+                version_conflict=true
+              fi
+              changed_skills="${changed_skills}${skill_name} "
+              new_version="$current"
+            fi
+          done
+
+          if [ "$version_conflict" = "true" ]; then
+            exit 1
+          fi
+
+          if [ -n "$new_version" ]; then
+            echo "All changed skills consistently bumped to $new_version: ${changed_skills}"
+          else
+            echo "No skill version changes detected."
+          fi
