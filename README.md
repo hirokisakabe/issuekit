@@ -77,7 +77,7 @@ issuekit assumes the following tools are available on the host:
 - **[`gh` CLI](https://cli.github.com/)** — used for all GitHub interactions (issue read/write, PR creation, CI status).
 - **At least one cross-review backend CLI** — required by `cross-review`. Pick whichever pairs with the agent driving the implementation:
   - **[Codex CLI](https://github.com/openai/codex)** (`brew install --cask codex`) for the `codex` backend.
-  - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) for the `claude-self` backend (uses `claude --bare -p` headless mode).
+  - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) for the `claude-self` backend (uses `claude -p` headless mode).
 - **Claude Code v2.1.49 or newer** — required by `worktree-start` only (it uses the `EnterWorktree` tool added in 2.1.49). The other six skills run on any Agent Skills-compatible runtime.
 
 `gh` must be authenticated against the repository you want to operate on. The `cross-review` backend is selected via the `CROSS_REVIEW_BACKEND` environment variable (`codex` / `claude-self`); if it is unset, the skill auto-detects whichever CLI is on `PATH`. If neither backend CLI is available, `cross-review` fails explicitly rather than silently skipping the review.

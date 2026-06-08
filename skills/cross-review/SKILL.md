@@ -16,7 +16,7 @@ version: 1.0.1
 ## 依存 / 互換性
 
 - **Codex CLI**: 0.125.0 以降で動作確認済み (`brew install --cask codex`)。codex backend では `codex exec` + stdin diff pipe 方式を採用しており、`codex exec review` の `--base / --uncommitted / [PROMPT]` 三者排他 (0.125.0 以降の制約) を回避している。0.125.0 未満でも `codex exec [PROMPT]` への stdin pipe は基本機能として古くから存在するため動作する想定だが、明示的なサポート下限は 0.125.0 とする。`codex exec review` のサブコマンド固有の挙動には依存しない。
-- **Claude CLI**: claude-self backend が利用する `claude --bare -p` のために必要 (`npm install -g @anthropic-ai/claude-code`)。stdin の 10MB 上限は Claude CLI v2.1.128 以降で明示的にエラー停止する (4. 分割レビューに切り替える)。
+- **Claude CLI**: claude-self backend が利用する `claude -p` のために必要 (`npm install -g @anthropic-ai/claude-code`)。stdin の 10MB 上限は Claude CLI v2.1.128 以降で明示的にエラー停止する (4. 分割レビューに切り替える)。
 - **`gh` CLI**: default branch 解決に必要。未認証 / repo 外実行では本 skill が明示的に停止する (失敗時の対応参照)。
 
 ## Backend 選択
@@ -143,7 +143,7 @@ Output format (respond in Japanese):
 
 #### 3-b. backend = `claude-self` の場合
 
-`claude --bare -p` で Claude CLI に diff を stdin 経由で渡す。`--bare` は CI / scripted call の推奨モードで、hooks / skills / MCP / CLAUDE.md auto-discovery を skip する（cross-review が再帰的に skill chain に巻き込まれる事故を防ぎ、レビュー結果の再現性も高まる）。`AGENTS.md` を読ませるために `--allowedTools "Read"` を付与する。
+`claude -p` で Claude CLI に diff を stdin 経由で渡す。`--bare` は OAuth / keychain のログイン状態を読まず `ANTHROPIC_API_KEY` または `--settings` の `apiKeyHelper` 前提になるため、ローカルの Claude.ai ログイン運用でも動くように使わない。`AGENTS.md` を読ませるために `--allowedTools "Read"` を付与する。
 
 ```bash
 {
@@ -155,7 +155,7 @@ Output format (respond in Japanese):
   echo
   echo "=== Staged diff ==="
   git diff --cached
-} | claude --bare -p \
+} | claude -p \
   --allowedTools "Read" \
   --append-system-prompt "You are a senior code reviewer providing a second opinion. The diff is supplied via stdin. First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards." \
   "Evaluate the diff from these perspectives:
@@ -217,7 +217,7 @@ Output (respond in Japanese):
   git diff "$BASE_REF"...HEAD -- <file-path>
   git diff -- <file-path>
   git diff --cached -- <file-path>
-} | claude --bare -p \
+} | claude -p \
   --allowedTools "Read" \
   --append-system-prompt "You are a senior code reviewer providing a second opinion. The diff for a single file is supplied via stdin." \
   "Review the changes to <file-path>.
