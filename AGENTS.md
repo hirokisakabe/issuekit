@@ -87,6 +87,9 @@ When the env var is unset, the skill falls back to `command -v` auto-detection (
 ## Editing skills
 
 - Frontmatter `name:` and `description:` drive how Claude Code triggers the skill. Keep `description:` specific and trigger-oriented (it is matched against user utterances).
+- When changing any `skills/*/SKILL.md`, bump the changed skill's frontmatter `version:` before opening a PR. Use semver: patch for bug fixes, wording fixes, and typo fixes; minor for backward-compatible feature or workflow additions; major for breaking behavior or substantial scope changes.
+- Bump only the `version:` of SKILL.md files that changed. Do not touch unchanged skills' versions.
+- The release workflow detects `version:` changes and creates GitHub Releases. Merging a skill change without a bump prevents version-pinned installs such as `gh skill install hirokisakabe/issuekit <skill-name>@v<version>` from receiving that change.
 - Prefer editing existing SKILL.md files over adding new ones. New skills should fit the existing graph (orchestrator vs. entry-point vs. verifier) and follow the structure: スコープ → 依存 → 入力 → 実行手順 → 失敗時の対応 → やらないこと.
 - "やらないこと" sections are load-bearing — they prevent scope creep across cycles. When in doubt, expand "やらないこと" rather than the implementation surface.
 
