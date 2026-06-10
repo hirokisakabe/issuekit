@@ -1,7 +1,7 @@
 ---
 name: issue-pick
 description: "Use when the user has NOT yet decided which issue to work on and needs help choosing. This is the pre-decision advisory phase: the user is weighing multiple open issues and wants structured guidance — not implementation. Key triggers: asking which issue to prioritize or tackle next, identifying which issues are blocked vs. ready to start independently, selecting issues that fit limited capacity (small/high-impact), or finding independent issues for parallel worktree sessions. The user's state is \"I have several candidates and don't know where to start.\" Provides ranked recommendation (1 pick + 1-2 alternates) across impact/dependencies/size/urgency — read-only, no state changes."
-version: 1.0.2
+version: 1.0.3
 ---
 
 # Issue Pick Skill
@@ -66,20 +66,16 @@ Status フィルタ後の対象 issue が **10 件を超える場合のみ** 一
 
 絞り込んだ候補について、親 issue を 2 系統で取得する。手順 1 で本文は既に取得済みのため、本文の再取得は不要だが、親子関係は別 fetch が必要。
 
-1. **GitHub の sub-issue 機能 (推奨)**: GraphQL の `issue.parent` フィールドを使う。REST の `/repos/.../issues/{number}` には `parent` フィールドが含まれないため、必ず GraphQL を使うこと。
+1. **GitHub の sub-issue 機能 (推奨)**: REST の sub-issues endpoint (`GET /repos/{owner}/{repo}/issues/{issue_number}/parent`) を使う。親 issue が存在しない場合は 404 になるため、その場合は空扱いにして fallback へ進む。
 2. **本文中の `親: #N` 記載 (fallback)**: 旧形式の issue や sub-issue 紐づけが漏れている issue では、本文の `親: #<番号>` リンクしか残っていないケースがある。本文を正規表現で走査し、親番号を抽出する。
 
 ```bash
-OWNER_REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-OWNER="${OWNER_REPO%/*}"
-REPO="${OWNER_REPO#*/}"
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 for N in <候補番号>; do
-  # (1) GraphQL で親 issue を取得 (sub-issue 機能で紐づけられている場合)
-  gh api graphql \
-    -f query='query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){parent{number title state}}}}' \
-    -f owner="$OWNER" -f repo="$REPO" -F num="$N" \
-    --jq '.data.repository.issue.parent // empty'
+  # (1) REST で親 issue を取得 (sub-issue 機能で紐づけられている場合)
+  gh api "repos/${REPO}/issues/${N}/parent" \
+    --jq '.number' || true
 
   # (2) 本文中の `親: #<番号>` (sub-issue 未紐づけ時の fallback)
   gh issue view "$N" --json body --jq '.body' | grep -oE '親: #[0-9]+' | grep -oE '[0-9]+'
