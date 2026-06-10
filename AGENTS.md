@@ -50,7 +50,7 @@ These strings are not localizable in the current implementation. Forking is requ
 ## Depends on / parent semantics
 
 - Dependency state is **never** written into issue bodies. Always resolve via `gh issue view <N> --json state` (see `issue-create` "依存 issue").
-- Parents are linked via GitHub's sub-issue feature (GraphQL `issue.parent`); REST `/issues/{n}` does not expose `parent`. `親: #N` in the body is a fallback for legacy issues. `issue-pick` takes the union of both. (`issue-create` step 6 — `gh api repos/.../sub_issues` — is mandatory, not optional.)
+- Parents are linked via GitHub's sub-issue feature and resolved with the REST sub-issues endpoints (`GET /repos/{owner}/{repo}/issues/{issue_number}/parent` and `GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues`). `親: #N` in the body is a fallback for legacy issues. `issue-pick` takes the union of both. (`issue-create` step 6 — `gh api repos/.../sub_issues` — is mandatory, not optional.)
 
 ## Acceptance check is read-only
 
