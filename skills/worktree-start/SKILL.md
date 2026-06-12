@@ -1,7 +1,7 @@
 ---
 name: worktree-start
-description: "Claude Code 専用。素の `claude` で起動した直後に、タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。issue 起点・タスク起点どちらでも並列セッション立ち上げに使う。issue URL / 番号入力で Status: Ready の場合は worktree 切り替え後に `issue-implement` へ自動連鎖する。"
-version: 1.0.1
+description: "Claude Code 専用。素の `claude` で起動した直後に、タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替えて作業を開始する。issue 起点・タスク起点どちらでも並列セッション立ち上げに使う。issue URL / 番号入力で Status: Ready かつコメント上の未解決事項がない場合は worktree 切り替え後に `issue-implement` へ自動連鎖する。"
+version: 1.0.2
 ---
 
 # Worktree Start Skill
@@ -10,7 +10,7 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 
 ## スコープ
 
-- **含む**: タスク説明 / issue URL / issue 番号からのブランチ名生成 (LLM 命名 or ユーザー明示指定の受領)、`EnterWorktree` ツール呼び出しによるセッション cwd 切り替え、既存 worktree 内での no-op 判定、issue 入力時の Status 判定と Ready 時の `issue-implement` への引き継ぎ。
+- **含む**: タスク説明 / issue URL / issue 番号からのブランチ名生成 (LLM 命名 or ユーザー明示指定の受領)、`EnterWorktree` ツール呼び出しによるセッション cwd 切り替え、既存 worktree 内での no-op 判定、issue 入力時の Status とコメント確認、着手可能な Ready 時の `issue-implement` への引き継ぎ。
 - **含まない**:
   - **外部タブ管理ツール (ターミナルマルチプレクサ等) との連携**: 並列タブの起動はユーザー操作のまま。
   - **Codex CLI / 他 agent 用の fallback 実装**: `EnterWorktree` は Claude Code 固有で、他 runtime には対応 primitive が存在しない。
@@ -37,7 +37,7 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 
 本 skill は単独 entry point として呼ばれるほか、`issuekit:issue-implement` skill の冒頭ステップ (issue-implement の step 4) から呼ばれることがある。後者の場合、上流が以下を **既に確認済み**であることを前提に動作する:
 
-- 対象 issue の `Status: Ready`
+- 対象 issue の `Status: Ready` と、コメント上に未解決 blocker / 本文矛盾 / 方針保留 / 受け入れ条件の未反映変更がないこと
 - `Depends on:` がすべて close 済み
 - 親 issue の文脈取り込み
 
@@ -59,7 +59,7 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 - **issue URL**: `https://github.com/<owner>/<repo>/issues/<N>` 形式。
 - **issue 番号**: `#42` / `42` 単体。
 
-issue URL / 番号が渡された場合は、本 skill 側で `gh issue view` を呼び出して title (ブランチ名生成用) と Status (連鎖判定用) を取得する。**Status の判定軸は `issue-create` の定義 (受け入れ条件の確定度) に従う**。
+issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --comments` を呼び出して title (ブランチ名生成用)、Status (連鎖判定用)、コメントの補足文脈を取得する。**Status の判定軸は `issue-create` の定義 (受け入れ条件の確定度) に従う**。
 
 ## 実行手順
 
@@ -79,8 +79,9 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view` �
 ユーザー入力を以下に分類する:
 
 - **タスク説明 (issue なし)**: そのまま step 3 のブランチ名生成へ進む。issue 連鎖は行わない (step 5 はスキップ)。`issue-implement` 上流から呼ばれた場合 (= 事前生成済みブランチ名 slug が渡される) もこの経路で扱い、Status 判定や `gh issue view` は走らせない。
-- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N>` で本文と title を取得する。本文先頭の `Status:` を確認して以下に分岐する:
-  - **`Status: Ready`**: 連鎖対象。step 3 でブランチ名を生成し、step 4 完了後 step 5 で `issue-implement` へ引き継ぐ。
+- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N> --comments` で本文、title、コメントを取得する。本文先頭の `Status:` を確認し、コメントに本文未反映の補足や矛盾がないかも確認して以下に分岐する。本文とコメントが矛盾する場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できないものだけを要確認として扱う:
+  - **`Status: Ready` かつコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更が無い**: 連鎖対象。step 3 でブランチ名を生成し、step 4 完了後 step 5 で `issue-implement` へ引き継ぐ。
+  - **`Status: Ready` だがコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更がある**: 受け入れ条件や前提が揺らいでいるため `issue-implement` への連鎖は **行わない**。worktree は作成して切り替えるが、step 6 の完了報告でコメント上の要確認点を示し、ユーザー確認または `issue-refine` での整理を案内する。
   - **`Status: Draft`**: 受け入れ条件が未確定なため `issue-implement` への連鎖は **行わない**。worktree は作成して切り替えるが、step 6 の完了報告で `issuekit:issue-refine` skill (APM plain-skill mode では `issue-refine`) での整理を案内する。
   - **`Status:` 表記なし / フォーマット不完全**: 同様に連鎖せず、`issue-refine` を案内する。
 
@@ -106,7 +107,7 @@ EnterWorktree({ name: "slack-oauth-flow-42" })
 
 ### 5. (issue Ready 時のみ) `issue-implement` への引き継ぎ
 
-step 2 で **issue URL / 番号 + `Status: Ready`** だった場合のみ、`issuekit:issue-implement` skill (APM plain-skill mode では `issue-implement`) を該当 issue 番号で呼び出し、issue 駆動の実装サイクルへ引き継ぐ。
+step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決 blocker / 本文矛盾 / 方針保留 / 受け入れ条件の未反映変更なし** だった場合のみ、`issuekit:issue-implement` skill (APM plain-skill mode では `issue-implement`) を該当 issue 番号で呼び出し、issue 駆動の実装サイクルへ引き継ぐ。
 
 - 引き継ぎ前にユーザーへの確認は挟まない。Ready は「着手 OK」のシグナルとして扱う方針 (`issue-create` の Status 定義に従う)。
 - 連鎖後の Status / Depends on / 親 issue 確認・実装と適宜 commit・受け入れ条件チェック・cross-review・PR・CI は `issue-implement` 側の責務。本 skill はあくまで worktree 切り替えと引き継ぎのみを行う。
@@ -119,6 +120,7 @@ step 2 で **issue URL / 番号 + `Status: Ready`** だった場合のみ、`iss
 
 - 入った worktree のパス (新 cwd) と作成されたブランチ名 (`worktree-` prefix 込み)。
 - **issue Ready で連鎖した場合**: `issue-implement <N>` を起動済みで、続けて issue サイクルが進むこと。
+- **issue Ready だがコメント上の要確認点があり連鎖しなかった場合**: 要確認点を列挙し、ユーザー確認または `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
 - **issue Draft / 表記なしの場合**: `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
 - **タスク説明の場合**: 「次は何をしますか?」の確認 (そのまま実装に入る、別 skill を呼ぶ、など)。
 

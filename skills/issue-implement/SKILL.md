@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 1.0.3
+version: 1.0.4
 ---
 
 # Issue Implement Skill
@@ -32,11 +32,15 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 
 ```bash
 ISSUE_NUMBER=<issue 番号>
-gh issue view "$ISSUE_NUMBER"
+gh issue view "$ISSUE_NUMBER" --comments
+gh issue view "$ISSUE_NUMBER" --json title,body,updatedAt,comments
 ```
 
+- issue 本文だけでなく、コメントも必ず確認する。コメントには本文更新前の補足、後続議論で決まった方針変更、未反映の制約、追加の再現情報が残っていることがあるため、本文のみを唯一の文脈として扱わない。
+- コメントに本文と矛盾する内容がある場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できなければ実装前にユーザーへ確認する。
+- コメントに未解決 blocker、方針保留、受け入れ条件の未反映変更がある場合は、`Status: Ready` であっても着手を止める。ユーザーに確認するか、必要なら `issuekit:issue-refine` skill（APM plain-skill mode では `issue-refine`）で本文へ反映してから再開する。
 - 本文先頭の `Status:` を確認する。Status の判定軸は **受け入れ条件の確定度** 一本（実装方針の確定度は問わない）であり、その意味を踏まえて分岐する。
-  - **`Status: Ready`**: 受け入れ条件が「やったかどうか自分で判定できる」形になっている。続行。
+  - **`Status: Ready`**: 受け入れ条件が「やったかどうか自分で判定できる」形になっている。コメント上の未解決 blocker / 本文矛盾 / 方針保留 / 受け入れ条件の未反映変更がなければ続行。
   - **`Status: Draft`**: 受け入れ条件が未確定（「仮」「要検討」を含む / 検証不能なほど曖昧）。着手しない。**worktree 化 (step 4) より前にここで early abort する**ため、worktree は作成されない。ユーザーに受け入れ条件の確認を促し、必要なら `issuekit:issue-refine` skill（APM plain-skill mode では `issue-refine`）で整理する。
   - **`Status:` 表記なし / フォーマット不完全**: 同様に worktree 化前に abort し、`issuekit:issue-refine` skill（APM plain-skill mode では `issue-refine`）での整理を案内する。
 
@@ -58,11 +62,11 @@ gh issue view <依存 issue 番号> --json state --jq '.state'
 
 ### 3. 親 issue の確認
 
-issue 本文に `親: #<番号>` の記載、または GitHub の sub-issue として親が存在する場合は、必ず親 issue を `gh issue view` で取得し、文脈を踏まえる。
+issue 本文に `親: #<番号>` の記載、または GitHub の sub-issue として親が存在する場合は、必ず親 issue をコメント込みで取得し、文脈を踏まえる。
 
 ```bash
 # 親 issue が本文に記載されている場合
-gh issue view <親 issue 番号>
+gh issue view <親 issue 番号> --comments
 
 # sub-issue として登録されているかの確認 (任意)
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
@@ -76,7 +80,7 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 1. **`EnterWorktree` ツールが利用可能** (= Claude Code 環境)。Codex CLI / Cursor / Gemini 等の非 Claude Code 環境では `EnterWorktree` が存在しないため自動的に false となり、本 step は skip される。
 2. **現在のセッションが worktree の外**: `git rev-parse --git-common-dir` と `git rev-parse --git-dir` の出力が一致する。一致しなければ既に worktree 内なので skip。
 3. **現在のブランチが default branch**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` の結果と `git rev-parse --abbrev-ref HEAD` が一致する。default branch 以外 (= ユーザーが手動で feature ブランチに切り替え済み) なら skip し、既存ブランチを尊重する。
-4. **対象 issue が `Status: Ready`**: step 1 で確認済みの値を使う。`Status: Draft` は step 1 で early abort 済み (worktree も作成しない) なので、ここに到達した時点で常に Ready。
+4. **対象 issue が step 1 のコメント確認を通過した `Status: Ready`**: step 1 で確認済みの値を使う。`Status: Draft` / フォーマット不完全 / コメント上の未解決 blocker・本文矛盾・方針保留・受け入れ条件の未反映変更は step 1 で early abort 済み (worktree も作成しない) なので、ここに到達した時点で常に「着手可能な Ready」。
 
 呼び方は **タスク説明モード** (issue 番号は渡さない)。issue title から kebab-case の slug を生成し、末尾に `-<issue 番号>` を付けたブランチ名 (例: issue #42「Slack 連携の OAuth フロー」→ `slack-oauth-flow-42`) を指定する。issue 番号を渡すと `worktree-start` 側で Status 判定経路に入り `issue-implement` への再帰連鎖が発生してしまうため、Status は本 skill 側で既に確認済みである旨を踏まえて純粋な worktree 切り替え機能だけを使う形にする。
 
@@ -90,7 +94,7 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 
 ### 5. 実装（必要に応じて適宜 commit）
 
-issue の「実装方針」「受け入れ条件」「スコープ外」に従い実装する。実装中に方針の揺らぎや不明点が出た場合は、勝手に拡張せずユーザーに確認する。
+issue 本文の「実装方針」「受け入れ条件」「スコープ外」と、step 1 / step 3 で確認したコメントの文脈に従い実装する。実装中に方針の揺らぎや不明点が出た場合は、勝手に拡張せずユーザーに確認する。
 
 「実装方針」が **優先順位付き（または順序付き）の解消候補リスト** として書かれている場合は、上から順に試す。各候補の試行後に `acceptance-check` skill 相当の検証で受け入れ条件の充足を確認し、満たせない場合は次の候補へ進む。候補を恣意的に選ばず、最初から順に試すこと。すべて試しても受け入れ条件を満たせない場合は、勝手に新しい方針を追加せずユーザーに報告する。
 
