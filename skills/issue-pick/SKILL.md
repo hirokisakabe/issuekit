@@ -1,7 +1,7 @@
 ---
 name: issue-pick
 description: "Use when the user has NOT yet decided which issue to work on and needs help choosing. This is the pre-decision advisory phase: the user is weighing multiple open issues and wants structured guidance — not implementation. Key triggers: asking which issue to prioritize or tackle next, identifying which issues are blocked vs. ready to start independently, selecting issues that fit limited capacity (small/high-impact), or finding independent issues for parallel worktree sessions. The user's state is \"I have several candidates and don't know where to start.\" Provides ranked recommendation (1 pick + 1-2 alternates) across impact/dependencies/size/urgency — read-only, no state changes."
-version: 1.0.3
+version: 1.0.4
 ---
 
 # Issue Pick Skill
@@ -64,7 +64,17 @@ Status フィルタ後の対象 issue が **10 件を超える場合のみ** 一
 
 ### 4. deep-read (親子関係の取得)
 
-絞り込んだ候補について、親 issue を 2 系統で取得する。手順 1 で本文は既に取得済みのため、本文の再取得は不要だが、親子関係は別 fetch が必要。
+絞り込んだ候補について、コメントと親子関係を取得する。手順 1 で本文は既に取得済みだが、コメントには本文未反映の補足・最新方針・blocker が残ることがあるため、deep-read 対象では本文だけで判断しない。
+
+```bash
+for N in <候補番号>; do
+  gh issue view "$N" --comments
+done
+```
+
+コメントに本文と矛盾する内容、未解決 blocker、方針保留、受け入れ条件の未反映変更がある場合は、その issue を `Status: Ready` の推奨候補から外し、出力では別枠の「要確認」候補として扱う。本文とコメントが矛盾する場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できないものだけを要確認として扱う。推測で断定せず「コメント上の補足 / 要確認」として理由を明示する。
+
+続けて親 issue を 2 系統で取得する。
 
 1. **GitHub の sub-issue 機能 (推奨)**: REST の sub-issues endpoint (`GET /repos/{owner}/{repo}/issues/{issue_number}/parent`) を使う。親 issue が存在しない場合は 404 になるため、その場合は空扱いにして fallback へ進む。
 2. **本文中の `親: #N` 記載 (fallback)**: 旧形式の issue や sub-issue 紐づけが漏れている issue では、本文の `親: #<番号>` リンクしか残っていないケースがある。本文を正規表現で走査し、親番号を抽出する。
@@ -103,7 +113,7 @@ done
 | **規模**          | 想定される変更行数・ファイル数・実装ステップ数の目安               |
 | **緊急度**        | 期限・障害影響・他作業のブロッカー性などの時間的要素               |
 
-各観点は issue 本文・labels・親子関係から読み取れる範囲で整理し、推測が必要な場合は「(推測)」と明示する。
+各観点は issue 本文・コメント・labels・親子関係から読み取れる範囲で整理し、推測が必要な場合は「(推測)」と明示する。コメント上の要確認点がある issue は、推奨 / 補欠ではなく要確認候補として分離する。
 
 ### 6. 推奨と補欠の提示
 
@@ -111,6 +121,7 @@ done
 
 - ranking 全件 (3 件超の順位付け) は出さない。advisory に徹し、優先度の永続化と紛らわしくしないため。
 - 推奨理由は 4 観点のどれを重視したかを明記する (例: 「影響範囲が広く、blocker もないため」)。
+- コメント上の要確認点がある issue は推奨 / 補欠に含めない。出力に含める場合は「要確認」セクションへ分離し、先にコメント内容の確認または `issue-refine` が必要なことを示す。
 - **重み付けはしない**: 「総合スコア」「優先度ポイント」のような数値化はせず、観点ごとの状態を並べた上で「これが妥当」と説明する形に留める。
 
 ### 7. 出力フォーマット
@@ -142,6 +153,11 @@ markdown 散文 + 観点別の箇条書きで出力する。出力末尾には�
 理由: <なぜ推奨ではなく補欠なのか>
 
 (補欠は最大 2 件まで)
+
+### 要確認: #<番号> <タイトル>
+
+- コメント上の論点: <本文未反映の補足 / 本文との矛盾 / 未解決 blocker / 方針保留 / 受け入れ条件の未反映変更>
+- 必要な確認 / 整理: <ユーザー確認、または `/issuekit:issue-refine <番号>` / APM plain-skill mode では `issue-refine <番号>` で本文へ反映>
 
 ---
 
