@@ -1,7 +1,7 @@
 ---
 name: issue-refine
 description: 既存の GitHub issue を `issue-create` skill のフォーマットに沿って整理する。タイトルのみで起票された issue や、フォーマット不完全な issue を後から rich plan に仕上げ直したい場合に使用する。
-version: 1.0.0
+version: 1.0.3
 ---
 
 # Issue Refine Skill
@@ -82,12 +82,14 @@ EOF
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-CHILD_ID=$(gh issue view "$ISSUE_NUMBER" --json id --jq '.id')
+# 子 issue の database ID (integer) を取得。
+# `gh issue view --json id` は GraphQL node ID を返すため、REST endpoint には使えない。
+CHILD_ID=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.id')
 PARENT_ISSUE_NUMBER=<親 issue 番号>
 
 gh api "repos/${REPO}/issues/${PARENT_ISSUE_NUMBER}/sub_issues" \
   -X POST \
-  -f sub_issue_id="$CHILD_ID"
+  -F sub_issue_id="$CHILD_ID"
 ```
 
 ### 7. 完了報告
