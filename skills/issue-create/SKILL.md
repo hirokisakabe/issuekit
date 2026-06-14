@@ -1,7 +1,7 @@
 ---
 name: issue-create
 description: "Invoke for any request to create, file, open, or record a new GitHub issue. Trigger on:\n- Direct creation: 「issue 作って」「起票して」「issue 立て(といて)」「issue 化して」「issue 作れる?」\n- Record intent: 「issue に残したい/残しておいてほしい」「issue として残しておきたい」\n- Issue types: bug reports (with repro steps), feature requests, refactoring tasks, doc fixes, code-review findings to track later\n\nDo NOT trigger for viewing, listing, searching, or implementing existing issues."
-version: 1.0.2
+version: 1.0.3
 ---
 
 # Issue Create Skill
@@ -193,13 +193,15 @@ Depends on: #<依存 issue 番号> # 依存がある場合のみ。無ければ�
    # リポジトリ名を取得
    REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
-   # 子 issue の node ID を取得
-   CHILD_ID=$(gh issue view "$CHILD_ISSUE_NUMBER" --json id --jq '.id')
+   # 子 issue の database ID (integer) を取得。
+   # `gh issue view --json id` は GraphQL node ID (例: `I_kwDO...`) を返すが、
+   # REST `POST .../sub_issues` の `sub_issue_id` は integer の database ID を要求する。
+   CHILD_ID=$(gh api "repos/${REPO}/issues/${CHILD_ISSUE_NUMBER}" --jq '.id')
 
-   # 親 issue に sub-issue として追加
+   # 親 issue に sub-issue として追加 (-F で integer として送る)
    gh api "repos/${REPO}/issues/${PARENT_ISSUE_NUMBER}/sub_issues" \
      -X POST \
-     -f sub_issue_id="$CHILD_ID"
+     -F sub_issue_id="$CHILD_ID"
    ```
 
 7. 紐づけ完了を確認してから、issue URL をユーザーに返す。
