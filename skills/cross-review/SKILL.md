@@ -42,12 +42,12 @@ runtime 判定後、対応 CLI の存在だけを確認する。以下はいず�
 
 ```bash
 # Codex CLI で実装している場合
-command -v codex >/dev/null 2>&1 || { echo "Codex CLI runtime ですが `codex` コマンドが見つかりません。`brew install --cask codex` で導入してください。" >&2; exit 1; }
+command -v codex >/dev/null 2>&1 || { printf '%s\n' 'Codex CLI runtime ですが `codex` コマンドが見つかりません。`brew install --cask codex` で導入してください。' >&2; exit 1; }
 ```
 
 ```bash
 # Claude Code で実装している場合
-command -v claude >/dev/null 2>&1 || { echo "Claude Code runtime ですが `claude` コマンドが見つかりません。`npm install -g @anthropic-ai/claude-code` で導入してください。" >&2; exit 1; }
+command -v claude >/dev/null 2>&1 || { printf '%s\n' 'Claude Code runtime ですが `claude` コマンドが見つかりません。`npm install -g @anthropic-ai/claude-code` で導入してください。' >&2; exit 1; }
 ```
 
 ### 1. base ref の確定
