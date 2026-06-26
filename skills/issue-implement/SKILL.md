@@ -22,7 +22,7 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 - **含む**: Status 確認、Depends on の close 確認、親 issue の文脈取り込み、worktree への自動切り替え (Claude Code 環境かつ default branch 上のときのみ、条件付き)、実装と適宜 commit、lint/format/型チェック、受け入れ条件チェック、cross-review、PR 作成、CI 確認・修正。
 - **含まない**:
   - default branch 名を hardcode した branch ガード。default branch 名はリポジトリにより異なる (main / master / develop / trunk 等) ため、`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` で動的に解決した値と現在ブランチを比較する。
-  - 非 Claude Code 環境 (Codex CLI / Cursor / Gemini) 向けの worktree 化フォールバック。`EnterWorktree` ツールが無い環境ではこの step を skip し、ユーザーが事前に切った worktree / branch でそのまま続行する。
+  - 非 Claude Code 環境向けの worktree 化フォールバック。Codex CLI では `EnterWorktree` が無いためこの step を skip し、ユーザーが事前に切った worktree / branch で続行する。Cursor / Gemini など `cross-review` 未対応 runtime は、実装前の preflight で停止する。
   - ユーザーが既に手動で feature ブランチに切り替えているケースの上書き。default branch 以外にいる場合は worktree 化を行わず既存ブランチを尊重する。
   - レビュー指摘の修正を `git commit --amend` / `rebase` / `fixup` で履歴整形すること。指摘対応は **追加 commit** で行い、試行錯誤やレビュー対応の経緯を履歴に残す。
 
