@@ -23,7 +23,7 @@ Agent Skills は agent-portable な open standard であり、本 skill は特�
 
 ## Reviewer Session の起動方針
 
-実行中の agent runtime に対応する CLI で reviewer session を起動する。backend の自動検出や環境変数 override による切り替えは扱わない。
+実行中の agent runtime に対応する CLI で reviewer session を起動する。backend の自動検出や環境変数 override による切り替えは扱わない。runtime は実行中 agent が自分の環境情報として明示的に把握している値だけで判定し、`command -v codex` / `command -v claude` の存在順から推測しない。
 
 | 実装中の runtime | 使用 CLI | 起動方法 |
 | ---------------- | -------- | -------- |
@@ -33,6 +33,20 @@ Agent Skills は agent-portable な open standard であり、本 skill は特�
 この対応は「同じ製品ファミリーの CLI で別セッションを起動する」ためのものであり、別モデルレビューを保証するものではない。別 backend / 別モデルレビューが必要な場合は、本 skill の責務として残さず別 issue で設計する。
 
 ## 実行手順
+
+### 0. runtime と CLI の事前確認
+
+実行中 agent runtime を明示的に判定する。Codex CLI で実装している場合は Codex CLI、Claude Code で実装している場合は Claude CLI を使う。判定できない場合、または Cursor / Gemini など本 skill に手順が定義されていない runtime の場合は、別 CLI へ自動的に切り替えず停止する。
+
+runtime 判定後、対応 CLI の存在だけを確認する。
+
+```bash
+# Codex CLI で実装している場合
+command -v codex >/dev/null 2>&1 || { echo "Codex CLI runtime ですが `codex` コマンドが見つかりません。`brew install --cask codex` で導入してください。" >&2; exit 1; }
+
+# Claude Code で実装している場合
+command -v claude >/dev/null 2>&1 || { echo "Claude Code runtime ですが `claude` コマンドが見つかりません。`npm install -g @anthropic-ai/claude-code` で導入してください。" >&2; exit 1; }
+```
 
 ### 1. base ref の確定
 

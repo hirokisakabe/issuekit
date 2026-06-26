@@ -12,7 +12,7 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 
 ## 依存
 
-- **`issuekit:cross-review` skill**: 実装・commit 後、PR 作成前に、実装セッションから独立した reviewer session による second opinion を得る。APM plain-skill mode では `cross-review` として呼び出す。実行中 agent runtime に対応する CLI が未導入の場合は明確に失敗させる（該当 skill 側の失敗時対応に従う）。
+- **`issuekit:cross-review` skill**: 実装・commit 後、PR 作成前に、実装セッションから独立した reviewer session による second opinion を得る。APM plain-skill mode では `cross-review` として呼び出す。実装前に runtime と対応 CLI を事前確認し、未対応 runtime や CLI 未導入の場合は明確に失敗させる（該当 skill 側の失敗時対応に従う）。
 - **`issuekit:acceptance-check` skill**: 実装・commit 後、cross-review より前に受け入れ条件の自動検査を実施する。APM plain-skill mode では `acceptance-check` として呼び出す。
 - **`issuekit:worktree-start` skill**: Claude Code 環境かつ default branch 上で起動された場合に、実装直前で worktree への自動切り替えに使用する (条件付き、後述 step 4)。APM plain-skill mode では `worktree-start` として呼び出す。Claude Code 以外の runtime ではこの step は skip される。
 - **`gh` CLI**: GitHub 操作全般に使用する。
@@ -76,6 +76,8 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 ### 4. worktree への自動切り替え (条件付き)
 
 実装サイクルの冒頭で、default branch 上のまま実装を始めて main / master を直接汚す事故を機械的に防ぐためのステップ。以下の AND 条件 4 つを **すべて** 満たす場合のみ、`issuekit:worktree-start` skill (APM plain-skill mode では `worktree-start`) を呼び出して新規 worktree に切り替える。
+
+この step に入る前に、後続の step 8 で `cross-review` を実行できる runtime / CLI かを事前確認する。Codex CLI で実装している場合は `codex`、Claude Code で実装している場合は `claude` が必要。Cursor / Gemini など `cross-review` 側に手順が定義されていない runtime、または実行中 runtime を明示的に判定できない場合は、実装・commit に進む前に停止する。CLI の有無は対応するコマンドだけを `command -v` で確認し、インストール済み CLI の存在順から runtime を推測しない。
 
 1. **`EnterWorktree` ツールが利用可能** (= Claude Code 環境)。Codex CLI / Cursor / Gemini 等の非 Claude Code 環境では `EnterWorktree` が存在しないため自動的に false となり、本 step は skip される。
 2. **現在のセッションが worktree の外**: `git rev-parse --git-common-dir` と `git rev-parse --git-dir` の出力が一致する。一致しなければ既に worktree 内なので skip。

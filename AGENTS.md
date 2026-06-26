@@ -72,7 +72,7 @@ These strings are not localizable in the current implementation. Forking is requ
 - Codex runtime uses Codex CLI (`codex exec --sandbox read-only` with stdin diff pipe) to start a fresh reviewer session.
 - Claude Code runtime uses Claude CLI headless (`claude -p` with stdin diff) to start a fresh reviewer session.
 
-Environment-variable backend overrides and auto-detection fallback are intentionally not part of the workflow. If a different backend / different model review is needed, track that as a separate issue instead of keeping it inside `cross-review`.
+The runtime must be determined from the running agent's explicit environment, not inferred from whichever CLI exists on `PATH`. Environment-variable backend overrides and auto-detection fallback are intentionally not part of the workflow. If a different backend / different model review is needed, track that as a separate issue instead of keeping it inside `cross-review`.
 
 ## Cross-review base branch resolution
 
@@ -81,7 +81,7 @@ Environment-variable backend overrides and auto-detection fallback are intention
 ## External dependencies
 
 - `gh` CLI — all GitHub operations. Must be authenticated against the target repo.
-- The CLI for the current agent runtime: Codex CLI (`brew install --cask codex`) when implementing from Codex, or Claude CLI (`npm install -g @anthropic-ai/claude-code`) when implementing from Claude Code. `cross-review` must fail loudly (not silently skip) when the corresponding CLI is unavailable.
+- The CLI for the current agent runtime: Codex CLI (`brew install --cask codex`) when implementing from Codex, or Claude CLI (`npm install -g @anthropic-ai/claude-code`) when implementing from Claude Code. `cross-review` must fail loudly (not silently skip) when the corresponding CLI is unavailable or the current runtime has no documented reviewer-session launch step.
 - Claude Code v2.1.49 or newer — required by `worktree-start` for the `EnterWorktree` tool. Older versions surface this as "tool not found"; the skill instructs users to upgrade rather than attempting any workaround.
 
 ## Editing skills
