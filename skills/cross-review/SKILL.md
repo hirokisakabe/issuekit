@@ -38,12 +38,14 @@ Agent Skills は agent-portable な open standard であり、本 skill は特�
 
 実行中 agent runtime を明示的に判定する。Codex CLI で実装している場合は Codex CLI、Claude Code で実装している場合は Claude CLI を使う。判定できない場合、または Cursor / Gemini など本 skill に手順が定義されていない runtime の場合は、別 CLI へ自動的に切り替えず停止する。
 
-runtime 判定後、対応 CLI の存在だけを確認する。
+runtime 判定後、対応 CLI の存在だけを確認する。以下はいずれか一方だけを実行し、両方を連続実行しない。
 
 ```bash
 # Codex CLI で実装している場合
 command -v codex >/dev/null 2>&1 || { echo "Codex CLI runtime ですが `codex` コマンドが見つかりません。`brew install --cask codex` で導入してください。" >&2; exit 1; }
+```
 
+```bash
 # Claude Code で実装している場合
 command -v claude >/dev/null 2>&1 || { echo "Claude Code runtime ですが `claude` コマンドが見つかりません。`npm install -g @anthropic-ai/claude-code` で導入してください。" >&2; exit 1; }
 ```
