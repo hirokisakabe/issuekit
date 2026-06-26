@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 1.0.4
+version: 1.0.5
 ---
 
 # Issue Implement Skill
@@ -12,7 +12,7 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 
 ## 依存
 
-- **`issuekit:cross-review` skill**: 実装・commit 後、PR 作成前に cross-review を実施する。APM plain-skill mode では `cross-review` として呼び出す。backend は環境変数 `CROSS_REVIEW_BACKEND` で `codex` / `claude-self` から選択でき、未指定時は利用可能な CLI を自動検出する。対応する CLI がいずれも未導入な場合は明確に失敗させる（該当 skill 側の失敗時対応に従う）。
+- **`issuekit:cross-review` skill**: 実装・commit 後、PR 作成前に、実装セッションから独立した reviewer session による second opinion を得る。APM plain-skill mode では `cross-review` として呼び出す。実装前に runtime と対応 CLI を事前確認し、未対応 runtime や CLI 未導入の場合は明確に失敗させる（該当 skill 側の失敗時対応に従う）。
 - **`issuekit:acceptance-check` skill**: 実装・commit 後、cross-review より前に受け入れ条件の自動検査を実施する。APM plain-skill mode では `acceptance-check` として呼び出す。
 - **`issuekit:worktree-start` skill**: Claude Code 環境かつ default branch 上で起動された場合に、実装直前で worktree への自動切り替えに使用する (条件付き、後述 step 4)。APM plain-skill mode では `worktree-start` として呼び出す。Claude Code 以外の runtime ではこの step は skip される。
 - **`gh` CLI**: GitHub 操作全般に使用する。
@@ -22,7 +22,7 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 - **含む**: Status 確認、Depends on の close 確認、親 issue の文脈取り込み、worktree への自動切り替え (Claude Code 環境かつ default branch 上のときのみ、条件付き)、実装と適宜 commit、lint/format/型チェック、受け入れ条件チェック、cross-review、PR 作成、CI 確認・修正。
 - **含まない**:
   - default branch 名を hardcode した branch ガード。default branch 名はリポジトリにより異なる (main / master / develop / trunk 等) ため、`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` で動的に解決した値と現在ブランチを比較する。
-  - 非 Claude Code 環境 (Codex CLI / Cursor / Gemini) 向けの worktree 化フォールバック。`EnterWorktree` ツールが無い環境ではこの step を skip し、ユーザーが事前に切った worktree / branch でそのまま続行する。
+  - 非 Claude Code 環境向けの worktree 化フォールバック。Codex CLI では `EnterWorktree` が無いためこの step を skip し、ユーザーが事前に切った worktree / branch で続行する。Cursor / Gemini など `cross-review` 未対応 runtime は、実装前の preflight で停止する。
   - ユーザーが既に手動で feature ブランチに切り替えているケースの上書き。default branch 以外にいる場合は worktree 化を行わず既存ブランチを尊重する。
   - レビュー指摘の修正を `git commit --amend` / `rebase` / `fixup` で履歴整形すること。指摘対応は **追加 commit** で行い、試行錯誤やレビュー対応の経緯を履歴に残す。
 
@@ -77,6 +77,8 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 
 実装サイクルの冒頭で、default branch 上のまま実装を始めて main / master を直接汚す事故を機械的に防ぐためのステップ。以下の AND 条件 4 つを **すべて** 満たす場合のみ、`issuekit:worktree-start` skill (APM plain-skill mode では `worktree-start`) を呼び出して新規 worktree に切り替える。
 
+この step に入る前に、後続の step 8 で `cross-review` を実行できる runtime / CLI かを事前確認する。Codex CLI で実装している場合は `codex`、Claude Code で実装している場合は `claude` が必要。Cursor / Gemini など `cross-review` 側に手順が定義されていない runtime、または実行中 runtime を明示的に判定できない場合は、実装・commit に進む前に停止する。CLI の有無は対応するコマンドだけを `command -v` で確認し、インストール済み CLI の存在順から runtime を推測しない。
+
 1. **`EnterWorktree` ツールが利用可能** (= Claude Code 環境)。Codex CLI / Cursor / Gemini 等の非 Claude Code 環境では `EnterWorktree` が存在しないため自動的に false となり、本 step は skip される。
 2. **現在のセッションが worktree の外**: `git rev-parse --git-common-dir` と `git rev-parse --git-dir` の出力が一致する。一致しなければ既に worktree 内なので skip。
 3. **現在のブランチが default branch**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` の結果と `git rev-parse --abbrev-ref HEAD` が一致する。default branch 以外 (= ユーザーが手動で feature ブランチに切り替え済み) なら skip し、既存ブランチを尊重する。
@@ -86,7 +88,7 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 
 いずれかの条件が欠ける場合は worktree を切らずにそのまま step 5 (実装) に進む:
 
-- 非 Claude Code 環境 → ユーザーが事前に切った worktree / branch で続行。
+- preflight を通過した非 Claude Code 環境 (= Codex CLI) → ユーザーが事前に切った worktree / branch で続行。Cursor / Gemini など `cross-review` 未対応 runtime は上記の事前確認で停止済み。
 - 既に worktree 内 → 二重発火を避けるため何もしない (`worktree-start` 側の再進入チェックでも no-op になる)。
 - default branch 以外のブランチ → ユーザーが意図して feature ブランチを切っているとみなし上書きしない。
 
@@ -130,13 +132,13 @@ commit メッセージは Conventional Commit-like prefix (`feat:` / `fix:` / `c
 
 ### 8. cross-review (issuekit:cross-review skill)
 
-受け入れ条件をすべて満たした最終形に対して、別 backend (Codex CLI または Claude CLI headless) による cross-review を実施する。`issuekit:cross-review` skill を呼び出す。APM plain-skill mode では `cross-review` を呼び出す。
+受け入れ条件をすべて満たした最終形に対して、実装セッションから独立した reviewer session による cross-review を実施する。`issuekit:cross-review` skill を呼び出す。APM plain-skill mode では `cross-review` を呼び出す。
 
 - **critical** の指摘がある場合: **追加 commit** で修正してから次に進む（`git commit --amend` / `rebase` / `fixup` は使わない）。修正後に受け入れ条件への影響が無いか軽く確認する（影響が疑わしい場合は step 7 をやり直す）。
-- **warning** の指摘がある場合: Claude 自身で対応要否を判断する。妥当な指摘は自律的に **追加 commit** で修正し、見送る場合は理由を添えて報告する（ユーザー確認は不要）。
+- **warning** の指摘がある場合: 実装 agent 自身で対応要否を判断する。妥当な指摘は自律的に **追加 commit** で修正し、見送る場合は理由を添えて報告する（ユーザー確認は不要）。
 - **info** のみの場合: 指摘を共有し、PR 作成に進む。
 
-backend は環境変数 `CROSS_REVIEW_BACKEND` (`codex` / `claude-self`) で選べる。未指定時は同 skill 側で `command -v` による自動検出が走る。base branch は `gh repo view --json defaultBranchRef` から動的に解決される（`master` / `develop` / `trunk` でもそのまま動く）。default branch 解決が失敗した場合は同 skill が明示的に停止するので、エラー出力に従って原因を解消してから再実行する。
+reviewer session は実行中 agent runtime に対応する CLI で起動する。Codex CLI で実装している場合は `codex exec --sandbox read-only`、Claude Code で実装している場合は `claude -p` を使う。base branch は `gh repo view --json defaultBranchRef` から動的に解決される（`master` / `develop` / `trunk` でもそのまま動く）。default branch 解決が失敗した場合は同 skill が明示的に停止するので、エラー出力に従って原因を解消してから再実行する。
 
 ### 9. PR 作成
 
@@ -172,5 +174,5 @@ PR URL と CI 結果（成功 / 修正後成功）をユーザーに返す。
 - step 4 で `worktree-start` を呼ぶ際に issue 番号を渡すこと。issue 番号を渡すと `worktree-start` 側の Status 判定経路に入り `issue-implement` への再帰連鎖が起きるため、タスク説明モードで slug (`<title>-<issue 番号>`) のみを渡す。
 - issue 本文や PR への `close` キーワードの自動付与（ユーザー明示指定時のみ）。
 - 受け入れ条件を満たさない状態での PR 作成。
-- 対応 backend CLI（codex / claude）がいずれも未導入な状態での cross-review 省略（該当する `issuekit:cross-review` / `cross-review` skill の失敗時対応に従い、明確に失敗させる）。
+- 実行中 agent runtime に対応する CLI が未導入な状態での cross-review 省略（該当する `issuekit:cross-review` / `cross-review` skill の失敗時対応に従い、明確に失敗させる）。
 - **`acceptance-check` / `cross-review` / CI の指摘修正のために `git commit --amend` / `git rebase` / `git rebase -i` / `--fixup` / `git reset` 等で履歴を整形すること**。レビュー対応・修正対応はすべて **追加 commit** として残し、試行錯誤と修正経緯を後から追えるようにする。issuekit リポジトリは merge commit 運用（squash ではない）なので、commit 履歴は merge 後も価値を持つ。

@@ -65,23 +65,23 @@ These strings are not localizable in the current implementation. Forking is requ
 - Branch naming is the skill's responsibility (LLM-named in kebab-case, or user-supplied verbatim). The `worktree-` prefix forced by `EnterWorktree` is intentionally accepted; the `path` parameter escape hatch is out of scope (see issue #13).
 - The skill is a no-op when the current session is already inside a worktree — `EnterWorktree` itself rejects re-entry, and the skill double-checks via `git rev-parse --git-common-dir` / `--git-dir` before calling the tool.
 
-## Cross-review backend selection
+## Cross-review reviewer session selection
 
-`cross-review` supports two backends, selected via the `CROSS_REVIEW_BACKEND` environment variable:
+`cross-review` is defined as a second-opinion review from an independent reviewer session, not as a guarantee that a different backend or different model is used.
 
-- `codex` — OpenAI Codex CLI (`codex exec` with stdin diff pipe; the `review` sub-command is avoided because of the 0.125.0 `--base` / `--uncommitted` / `[PROMPT]` mutual exclusion). Intended for "implemented with Claude Code → reviewed by GPT".
-- `claude-self` — Claude CLI headless (`claude -p` with stdin diff). Intended for "implemented with Codex CLI / Cursor → reviewed by Claude".
+- Codex runtime uses Codex CLI (`codex exec --sandbox read-only` with stdin diff pipe) to start a fresh reviewer session.
+- Claude Code runtime uses Claude CLI headless (`claude -p` with stdin diff) to start a fresh reviewer session.
 
-When the env var is unset, the skill falls back to `command -v` auto-detection (`codex` first, then `claude`). When the env var is **set** but the corresponding CLI is missing, the skill fails explicitly — there is no silent fallback to the other backend, since that would silently change the reviewer model the user asked for.
+The runtime must be determined from the running agent's explicit environment, not inferred from whichever CLI exists on `PATH`. Environment-variable backend overrides and auto-detection fallback are intentionally not part of the workflow. If a different backend / different model review is needed, track that as a separate issue instead of keeping it inside `cross-review`.
 
 ## Cross-review base branch resolution
 
-`cross-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and feeds the result into `git diff "$BASE_REF"...HEAD` for both backends (the diff is piped to `codex exec` / `claude -p` via stdin). `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
+`cross-review` resolves the base branch dynamically via `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` and feeds the result into `git diff "$BASE_REF"...HEAD` (the diff is piped to `codex exec` / `claude -p` via stdin). `master` / `develop` / `trunk` repos work without modification. The skill stops with an explicit error (no silent fallback to `main`) when default-branch resolution fails — see its "失敗時の対応" section. Override (env var / arg) is intentionally out of scope.
 
 ## External dependencies
 
 - `gh` CLI — all GitHub operations. Must be authenticated against the target repo.
-- At least one of: Codex CLI (`brew install --cask codex`) or Claude CLI (`npm install -g @anthropic-ai/claude-code`), required by `cross-review`. The skill must fail loudly (not silently skip) when neither is available, or when an explicitly-selected backend's CLI is missing.
+- The CLI for the current agent runtime: Codex CLI (`brew install --cask codex`) when implementing from Codex, or Claude CLI (`npm install -g @anthropic-ai/claude-code`) when implementing from Claude Code. `cross-review` must fail loudly (not silently skip) when the corresponding CLI is unavailable or the current runtime has no documented reviewer-session launch step.
 - Claude Code v2.1.49 or newer — required by `worktree-start` for the `EnterWorktree` tool. Older versions surface this as "tool not found"; the skill instructs users to upgrade rather than attempting any workaround.
 
 ## Editing skills
