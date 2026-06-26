@@ -197,15 +197,16 @@ Output (respond in Japanese):
 #### 4-b. Claude Code で実行中の場合
 
 ```bash
+FILE_PATH='<file-path>'
 {
-  echo "=== Diff for <file-path> ==="
-  git diff "$BASE_REF"...HEAD -- <file-path>
-  git diff -- <file-path>
-  git diff --cached -- <file-path>
+  echo "=== Diff for $FILE_PATH ==="
+  git diff "$BASE_REF"...HEAD -- "$FILE_PATH"
+  git diff -- "$FILE_PATH"
+  git diff --cached -- "$FILE_PATH"
 } | claude -p \
   --allowedTools "Read" \
   --append-system-prompt "You are a senior code reviewer providing a second opinion. The diff for a single file is supplied via stdin." \
-  "Review the changes to <file-path>.
+  "Review the changes to $FILE_PATH.
 
 Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation, Related-file consistency.
 

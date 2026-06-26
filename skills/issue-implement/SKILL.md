@@ -88,7 +88,7 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 
 いずれかの条件が欠ける場合は worktree を切らずにそのまま step 5 (実装) に進む:
 
-- 非 Claude Code 環境 → ユーザーが事前に切った worktree / branch で続行。
+- preflight を通過した非 Claude Code 環境 (= Codex CLI) → ユーザーが事前に切った worktree / branch で続行。Cursor / Gemini など `cross-review` 未対応 runtime は上記の事前確認で停止済み。
 - 既に worktree 内 → 二重発火を避けるため何もしない (`worktree-start` 側の再進入チェックでも no-op になる)。
 - default branch 以外のブランチ → ユーザーが意図して feature ブランチを切っているとみなし上書きしない。
 
