@@ -75,12 +75,12 @@ issuekit assumes the following tools are available on the host:
 
 - **An [Agent Skills](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)-compatible agent runtime** (e.g. [Claude Code](https://docs.claude.com/en/docs/claude-code), Codex CLI, Cursor) that loads the skills.
 - **[`gh` CLI](https://cli.github.com/)** — used for all GitHub interactions (issue read/write, PR creation, CI status).
-- **At least one cross-review backend CLI** — required by `cross-review`. Pick whichever pairs with the agent driving the implementation:
-  - **[Codex CLI](https://github.com/openai/codex)** (`brew install --cask codex`) for the `codex` backend.
-  - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) for the `claude-self` backend (uses `claude -p` headless mode).
+- **The CLI for your current agent runtime** — required by `cross-review` to start an independent reviewer session:
+  - **[Codex CLI](https://github.com/openai/codex)** (`brew install --cask codex`) when the implementation is driven from Codex CLI.
+  - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) when the implementation is driven from Claude Code (uses `claude -p` headless mode).
 - **Claude Code v2.1.49 or newer** — required by `worktree-start` only (it uses the `EnterWorktree` tool added in 2.1.49). The other six skills run on any Agent Skills-compatible runtime.
 
-`gh` must be authenticated against the repository you want to operate on. The `cross-review` backend is selected via the `CROSS_REVIEW_BACKEND` environment variable (`codex` / `claude-self`); if it is unset, the skill auto-detects whichever CLI is on `PATH`. If neither backend CLI is available, `cross-review` fails explicitly rather than silently skipping the review.
+`gh` must be authenticated against the repository you want to operate on. `cross-review` does not switch to another backend automatically; it uses the CLI that corresponds to the runtime currently driving the implementation. If that CLI is unavailable, `cross-review` fails explicitly rather than silently skipping the review.
 
 ---
 
@@ -96,7 +96,7 @@ issuekit ships seven skills under `skills/`:
 | `worktree-start`     | Entry point | **Claude Code only.** Switch the running session into a freshly named git worktree via the `EnterWorktree` tool. Accepts a task description **or** an issue URL/number — when the input is a `Status: Ready` issue, it chains into `issue-implement` after the worktree switch (otherwise it stops at the switch). |
 | `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → worktree start → implementation / commits → acceptance check → cross-review → PR → CI.     |
 | `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` after implementation/commits, before `cross-review`. |
-| `cross-review`       | Verifier    | Delegate a second-opinion code review to a different AI backend (Codex CLI or Claude CLI headless, selectable via `CROSS_REVIEW_BACKEND`) before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
+| `cross-review`       | Verifier    | Start an independent reviewer session with the current runtime's CLI and get a second-opinion code review before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
 
 `issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only entry point that is Claude Code-specific (`EnterWorktree` is a Claude Code primitive — Codex CLI has no equivalent), so it has no fallback under other agent runtimes. It is also the only entry point that conditionally chains into the orchestrator: when invoked with an issue URL/number whose body has `Status: Ready`, it hands off to `issue-implement` after the worktree switch.
 
