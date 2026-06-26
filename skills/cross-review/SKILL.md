@@ -1,7 +1,7 @@
 ---
 name: cross-review
 description: 実装・commit 後、`acceptance-check` 通過後・PR 作成前に、実装セッションから独立した reviewer session を実行中 agent runtime に対応する CLI で起動し、diff への second opinion を得る。
-version: 1.0.4
+version: 1.0.5
 ---
 
 # Cross Review Skill
