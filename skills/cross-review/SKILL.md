@@ -1,7 +1,7 @@
 ---
 name: cross-review
 description: 実装・commit 後、`acceptance-check` 通過後・PR 作成前に、実装セッションから独立した reviewer session を実行中 agent runtime に対応する CLI で起動し、diff への second opinion を得る。
-version: 1.0.5
+version: 1.0.6
 ---
 
 # Cross Review Skill
@@ -17,7 +17,7 @@ Agent Skills は agent-portable な open standard であり、本 skill は特�
 
 ## 依存 / 互換性
 
-- **Codex CLI**: Codex runtime で本 skill を使う場合に必要 (`brew install --cask codex`)。`codex exec` + stdin diff pipe 方式で独立 reviewer session を起動する。`codex exec review` のサブコマンド固有の挙動には依存しない。
+- **Codex CLI**: Codex runtime で本 skill を使う場合に必要 (`brew install --cask codex`)。`codex exec` + stdin diff pipe 方式で独立 reviewer session を起動する。`codex exec review --base ... [PROMPT]` は少なくとも codex-cli 0.142.5 時点で parser が拒否するため（openai/codex#22145）、本 skill は `codex exec review` のサブコマンド固有の挙動には依存しない。
 - **Claude CLI**: Claude Code runtime で本 skill を使う場合に必要 (`npm install -g @anthropic-ai/claude-code`)。`claude -p` で独立 reviewer session を起動する。stdin の 10MB 上限に当たる場合は 4. 分割レビューに切り替える。
 - **`gh` CLI**: default branch 解決に必要。未認証 / repo 外実行では本 skill が明示的に停止する（失敗時の対応参照）。
 
@@ -229,7 +229,7 @@ reviewer session の結果を確認し、ユーザーへ報告する。
 - **実行中 runtime を判定できない場合**: 自動検出で別 CLI へ切り替えず停止する。Codex CLI / Claude Code 以外の runtime 向け手順は別 issue で扱う。
 - **default branch の取得失敗時**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` が空文字を返す、もしくは `gh` がエラーを返した場合は、その時点で停止しエラーメッセージを出す。`main` への暗黙フォールバックは行わない（誤った base に対する diff でレビュー結果が破綻するため）。よくある原因は、`gh` 未認証 (`gh auth status` で確認) / git repo 外での実行 / リモートが GitHub 以外。原因を解消してから再実行する。
 - **base ref の resolve 失敗時**: `BASE_BRANCH` 名は取れたが、ローカルに該当 ref も `origin/$BASE_BRANCH` も存在しない場合（例: 浅い clone / default branch を local 側で削除した worktree 等）も停止する。`git fetch origin` で remote-tracking ref を取得すれば多くの場合解消する。
-- **Codex CLI で `codex exec review --base ... [PROMPT]` 系のエラーに遭遇した場合**: 古い呼び出し方式が残ったローカル環境の可能性が高い。本 skill は `codex exec` + stdin diff pipe を使う。SKILL.md を最新版に更新するか、shell history に残った古いコマンドを破棄する。
+- **Codex CLI で `codex exec review --base ... [PROMPT]` 系のエラーに遭遇した場合**: Codex CLI 側の既知制約として、native review target (`--base` / `--commit` / `--uncommitted`) と custom prompt は同時に受け付けられない。本 skill の実行例は `git diff "$BASE_REF"...HEAD` を stdin で `codex exec --sandbox read-only` に渡す方式なので、`codex exec review` へ置き換えない。古いメモや shell history に残った `codex exec review --base ... [PROMPT]` の呼び出しは破棄する。
 - **差分がない場合**: レビュー不要としてスキップする。
 - **reviewer session がタイムアウトした場合**: 差分を分割して再試行する（ステップ 4）。
 - **Claude CLI で stdin が 10MB を超える場合**: Claude CLI が明示的にエラーで停止するので、ステップ 4 の分割レビューに切り替える。
