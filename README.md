@@ -25,6 +25,7 @@ An Agent Skills bundle that treats each GitHub issue as the canonical "rich plan
 - [📦 Install](#-install)
 - [🛠️ Dependencies](#-dependencies)
 - [🧩 Skills](#-skills)
+- [🌳 Worktree isolation](#-worktree-isolation)
 - [🔁 Workflow](#-workflow)
 - [💡 Philosophy](#-philosophy)
 - [🆚 Comparison with related frameworks](#-comparison-with-related-frameworks)
@@ -78,7 +79,7 @@ issuekit assumes the following tools are available on the host:
 - **The CLI for your current agent runtime** — required by `cross-review` to start an independent reviewer session:
   - **[Codex CLI](https://github.com/openai/codex)** (`brew install --cask codex`) when the implementation is driven from Codex CLI.
   - **[Claude CLI](https://docs.claude.com/en/docs/claude-code)** (`npm install -g @anthropic-ai/claude-code`) when the implementation is driven from Claude Code (uses `claude -p` headless mode).
-- **Claude Code v2.1.49 or newer** — required by `worktree-start` only (it uses the `EnterWorktree` tool added in 2.1.49). Other skills load on any Agent Skills-compatible runtime, but `cross-review` currently documents reviewer-session launch steps only for Codex CLI and Claude Code.
+- **Claude Code with `EnterWorktree` support** — required by `worktree-start`. If the tool is unavailable, update Claude Code and restart the session, or start a new isolated session with `claude --worktree <name>`. Other skills load on any Agent Skills-compatible runtime, but `cross-review` currently documents reviewer-session launch steps only for Codex CLI and Claude Code.
 
 `gh` must be authenticated against the repository you want to operate on. `cross-review` does not switch to another backend automatically; it uses the CLI that corresponds to the runtime currently driving the implementation. If that CLI is unavailable, or if the current runtime has no documented reviewer-session launch step, `cross-review` fails explicitly rather than silently skipping the review.
 
@@ -93,14 +94,33 @@ issuekit ships seven skills under `skills/`:
 | `issue-create`       | Entry point | Open a new GitHub issue using issuekit's standard format (`Status: Ready` / `Status: Draft` header, intent, plan, acceptance criteria, out-of-scope).  |
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
-| `worktree-start`     | Entry point | **Claude Code only.** Switch the running session into a freshly named git worktree via the `EnterWorktree` tool. Accepts a task description **or** an issue URL/number — when the input is a `Status: Ready` issue, it chains into `issue-implement` after the worktree switch (otherwise it stops at the switch). |
-| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → worktree start → implementation / commits → acceptance check → cross-review → PR → CI. The full cycle currently requires Codex CLI or Claude Code because of `cross-review`. |
+| `worktree-start`     | Entry point | **Claude Code interactive sessions only.** Switch the running session into a named git worktree via `EnterWorktree`. If already in a linked worktree, issuekit leaves it there. A `Status: Ready` issue chains into `issue-implement` after the switch. |
+| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → mandatory isolation preflight → implementation / commits → acceptance check → cross-review → PR → CI. The full cycle currently requires Codex CLI or Claude Code because of `cross-review`. |
 | `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` after implementation/commits, before `cross-review`. |
 | `cross-review`       | Verifier    | Start an independent reviewer session with the current runtime's CLI and get a second-opinion code review before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
 
-`issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only entry point that is Claude Code-specific (`EnterWorktree` is a Claude Code primitive — Codex CLI has no equivalent), so it has no fallback under other agent runtimes. It is also the only entry point that conditionally chains into the orchestrator: when invoked with an issue URL/number whose body has `Status: Ready`, it hands off to `issue-implement` after the worktree switch.
+`issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only Claude Code-specific entry point and owns only the in-session `EnterWorktree` transition. Codex App managed worktrees and Handoff remain App-owned, while Codex CLI users create ordinary git worktrees outside the running agent session. `worktree-start` conditionally chains into the orchestrator when invoked with a `Status: Ready` issue.
 
 `Status: Draft` is reserved for issues whose acceptance criteria are not yet certain. Draft issues include a `## Ready にするための未決事項` checklist containing the concrete decisions needed to finalize those criteria; implementation-plan choices alone do not make an issue Draft.
+
+---
+
+## 🌳 Worktree isolation
+
+Before `issue-implement` writes files or commits, it classifies the current location as a linked worktree, a non-default feature branch, or the repository's default branch. An existing linked worktree is reused without creating another one. A single implementation on an existing feature branch is also preserved. A write-capable parallel worker is stricter: **one worker must have one dedicated worktree**, and workers must never share a working tree.
+
+[Codex subagent workflows](https://learn.chatgpt.com/docs/agent-configuration/subagents) are available in the CLI, IDE extension, and App, but orchestration does not itself isolate file writes. Keep parallel exploration and review read-only where possible; if multiple workers write, assign each worker a separate worktree.
+
+| Runtime | Isolation contract on the default branch |
+| --- | --- |
+| Codex CLI | Stop before implementation. Create an ordinary worktree with `git worktree add`, then start a new session with [`codex -C <path>`](https://learn.chatgpt.com/docs/codex/cli/reference) and rerun `issue-implement`. The running CLI session is not assumed to migrate cwd safely. |
+| Codex App | Start the chat in an App-managed **Worktree**, or use **Handoff** from Local to Worktree. These are App-owned features; issuekit does not create or control managed worktrees. See [Codex Worktrees](https://learn.chatgpt.com/docs/environments/git-worktrees). |
+| Claude Code CLI | Start isolated with `claude --worktree <name>`, or let `worktree-start` use `EnterWorktree` from an interactive session. See [Claude Code worktrees](https://code.claude.com/docs/en/worktrees). |
+| Claude Code subagent | Set `isolation: worktree` in the agent frontmatter or spawn configuration. See [Claude Code subagents](https://code.claude.com/docs/en/sub-agents). |
+| Claude Code Agent view | Background sessions move into isolated worktrees before editing unless isolation is explicitly disabled. See [Agent view](https://code.claude.com/docs/en/agent-view#how-file-edits-are-isolated). |
+| Claude Desktop Code session | New sessions receive automatic worktrees; lifecycle remains Desktop-owned. See [Claude Desktop](https://code.claude.com/docs/en/desktop#work-in-parallel-with-sessions). |
+
+A worktree is a fresh checkout. Install dependencies and initialize the environment in each worktree as needed; dependencies and build caches can multiply disk usage. If ignored local files such as `.env` or `.env.local` are required, add a repository-root `.worktreeinclude` using `.gitignore` syntax. Only ignored files are copied by Codex App managed worktrees and Claude Code-created worktrees; ordinary `git worktree add` does not process this file. Keep secrets within the same trust boundary and do not list tracked files.
 
 ---
 
@@ -113,8 +133,11 @@ flowchart LR
     A[issue-create] --> I[(GitHub issue<br/>Status: Ready)]
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
-    I --> W[worktree-start]
-    W --> IMPL[issue-implement<br/>implementation + commits]
+    I --> PF[issue-implement<br/>isolation preflight]
+    PF -->|Claude Code default branch| W[worktree-start]
+    W --> IMPL[implementation + commits]
+    PF -->|existing worktree / feature branch| IMPL
+    PF -. unsafe runtime/location: stop .-> STOP[restart in isolated worktree]
     IMPL --> AC[acceptance-check]
     AC --> CR[cross-review]
     CR --> C[PR + CI]
@@ -125,9 +148,9 @@ flowchart LR
     classDef out   fill:#f3f4f6,stroke:#6b7280,color:#1f2937
 
     class A,R,P,W entry
-    class IMPL orch
+    class PF,IMPL orch
     class CR,AC ver
-    class I,C out
+    class I,C,STOP out
 ```
 
 ---

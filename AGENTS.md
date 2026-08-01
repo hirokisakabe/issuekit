@@ -16,13 +16,13 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` against the final repo state after implementation+commits, **before** `cross-review` so an acceptance ✗ does not waste a cross-review pass)
 - `issue-implement` → `cross-review` (second-opinion code review of the `base...HEAD` diff after `acceptance-check` passes, before PR creation; review fixes land as additional commits, not amends)
-- `issue-implement` → `worktree-start` (**conditional**, before implementation in `issue-implement` step 4): fires only when **all four** conditions hold — `EnterWorktree` is available (= Claude Code runtime), the session is outside any worktree (`git rev-parse --git-common-dir` == `--git-dir`), the current branch is the repo's default branch (`gh repo view --json defaultBranchRef`), and `Status: Ready`. `Status: Draft` triggers an early abort in step 1, so the worktree is never created for Draft issues.
+- `issue-implement` → `worktree-start` (**conditional**, inside the mandatory isolation preflight before implementation): fires only for a Claude Code interactive session on the repository's default branch when `EnterWorktree` is available. An existing linked worktree is reused; an existing non-default feature branch is preserved for a single implementation; unsafe runtime/location combinations stop before writes or commits. `Status: Draft` still aborts in step 1 before this preflight.
 - `worktree-start` → `issue-implement` (**only** when input is an issue URL/number with `Status: Ready`; with a generic task description, `Status: Draft`, or unformatted issues it stops at the worktree switch)
 - `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
 
 The `issue-implement ↔ worktree-start` edge is **bidirectional but not looping**:
 
-- When `worktree-start` is the entry point and chains forward into `issue-implement`, the latter would re-invoke `worktree-start`, but the second call hits the "already inside a worktree" no-op check and returns immediately.
+- When `worktree-start` is the entry point and chains forward into `issue-implement`, the latter sees that it is already in a linked worktree and continues without re-invoking `worktree-start`.
 - When `issue-implement` is the entry point and calls `worktree-start` from step 4, it must pass a pre-generated branch-name slug (`<title>-<issue番号>`), **not** the issue number. Passing the number would re-enter `worktree-start`'s Status-detection path and re-chain back into `issue-implement` unnecessarily. The recursion would still terminate via the no-op check, but the redundant invocation is avoided by routing through the task-description mode of `worktree-start`.
 
 When editing one skill, check whether others reference it. Cross-references appear in two forms:
@@ -56,14 +56,20 @@ These strings are not localizable in the current implementation. Forking is requ
 
 `acceptance-check` reports `✓ / ✗ / ?` and never writes. It does not flip `- [ ]` to `- [x]`, never edits issue bodies, and does not perform actual UI/CLI verification (only suggests how). `?` items are explicitly delegated to the caller.
 
-## Worktree-start is Claude Code only
+## Runtime worktree isolation
 
-`worktree-start` invokes the `EnterWorktree` tool added to Claude Code in v2.1.49 (2026-02-19). This primitive is Claude Code-specific:
+`issue-implement` step 4 is a mandatory isolation preflight. It resolves the default branch dynamically, checks `git rev-parse --git-common-dir` against `--git-dir`, and classifies the runtime/location before any implementation write or commit:
 
-- Codex CLI has no worktree concept ([openai/codex#13120](https://github.com/openai/codex/issues/13120)); Codex Worktrees ship only in the Desktop app, not the CLI.
-- The skill therefore does **not** provide a fallback for non-Claude-Code agents — when run under another runtime the `EnterWorktree` tool will simply not exist. Users on Codex / Cursor / Gemini should fall back to plain `git worktree add` outside the agent.
-- Branch naming is the skill's responsibility (LLM-named in kebab-case, or user-supplied verbatim). The `worktree-` prefix forced by `EnterWorktree` is intentionally accepted; the `path` parameter escape hatch is out of scope (see issue #13).
-- The skill is a no-op when the current session is already inside a worktree — `EnterWorktree` itself rejects re-entry, and the skill double-checks via `git rev-parse --git-common-dir` / `--git-dir` before calling the tool.
+- A linked worktree continues without double creation. A non-default feature branch is preserved for a single implementation.
+- A write-capable parallel worker requires **one worker = one worktree** even if it is already on a feature branch; workers never share a working tree.
+- Default-branch execution must move to a dedicated worktree or stop before implementation. There is no skip-and-continue path.
+- Codex CLI stops and instructs the user to run ordinary `git worktree add`, then `codex -C <path>` in a new session. The running session is not assumed to migrate cwd.
+- Codex App managed worktrees and Handoff are App-owned. Skills may verify that the chat is isolated or tell the user to use the App UI, but must not claim to create or control App-managed worktrees.
+- Claude Code interactive sessions may invoke `worktree-start`, which owns the in-session `EnterWorktree` call. `claude --worktree`, subagent `isolation: worktree`, Agent view background-session isolation, and Desktop automatic session worktrees remain runtime-owned paths.
+
+`worktree-start` is therefore still Claude Code-only, but its no-op inside an existing linked worktree is an **issuekit policy**, not a general `EnterWorktree` limitation. Current Claude Code can switch to another existing worktree under `.claude/worktrees/`; issuekit intentionally does not do so because it would displace a session already assigned to a task. Resume and cleanup follow the current [Claude Code worktree documentation](https://code.claude.com/docs/en/worktrees): resumes return to the associated worktree when it exists, interactive exit cleanup depends on whether work is present, and non-interactive `-p` worktrees require manual cleanup.
+
+Worktrees are fresh checkouts. Document dependency/environment initialization and disk usage where relevant. `.worktreeinclude` is for ignored local files needed by Claude Code-created and Codex App managed worktrees; it does not apply to ordinary `git worktree add`.
 
 ## Cross-review reviewer session selection
 
@@ -82,7 +88,7 @@ The runtime must be determined from the running agent's explicit environment, no
 
 - `gh` CLI — all GitHub operations. Must be authenticated against the target repo.
 - The CLI for the current agent runtime: Codex CLI (`brew install --cask codex`) when implementing from Codex, or Claude CLI (`npm install -g @anthropic-ai/claude-code`) when implementing from Claude Code. `cross-review` must fail loudly (not silently skip) when the corresponding CLI is unavailable or the current runtime has no documented reviewer-session launch step.
-- Claude Code v2.1.49 or newer — required by `worktree-start` for the `EnterWorktree` tool. Older versions surface this as "tool not found"; the skill instructs users to upgrade rather than attempting any workaround.
+- Claude Code with `EnterWorktree` support — required by `worktree-start`. If unavailable, the skill instructs users to update/restart or start a new isolated session with `claude --worktree` rather than continuing on the default branch.
 
 ## Editing skills
 
