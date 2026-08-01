@@ -1,7 +1,7 @@
 ---
 name: acceptance-check
 description: GitHub issue 本文の `## 受け入れ条件` セクションを抽出し、repo 状態や issue コメントを根拠に各項目を ✓ / ✗ / ? で報告する read-only skill。`issue-implement` と `issue-investigate` の受け入れ条件確認を標準化する。
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Acceptance Check Skill

@@ -1,7 +1,7 @@
 ---
 name: issue-investigate
 description: GitHub issue を起点に、PR や永続的な repo 変更を成果物としない調査・設計・技術検証を実行し、構造化した結果を issue コメントへ記録して受け入れ条件確認後に close する。Ready なコメント完結型 issue の着手時に使用する。
-version: 1.0.0
+version: 1.2.0
 ---
 
 # Issue Investigate Skill

@@ -1,7 +1,7 @@
 ---
 name: worktree-start
 description: "Claude Code 専用。タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替える。Ready issue は完了形を判定し、PR なら `issue-implement`、コメント完結型なら `issue-investigate` へ連鎖し、要確認なら `issue-refine` を案内する。"
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Worktree Start Skill
