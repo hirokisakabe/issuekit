@@ -1,7 +1,7 @@
 ---
 name: worktree-start
 description: "Claude Code 専用。起動済みの対話 session から、タスク説明または issue URL / 番号で命名した git worktree へ `EnterWorktree` で切り替える。既存 linked worktree では worktree 作成だけを issuekit の安全策として no-op にし、issue URL / 番号が Status: Ready かつコメント上の未解決事項なしなら `issue-implement` へ自動連鎖する。"
-version: 1.1.0
+version: 2.0.0
 ---
 
 # Worktree Start Skill
