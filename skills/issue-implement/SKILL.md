@@ -15,21 +15,23 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 - **`issuekit:cross-review` skill**: 実装・commit 後、PR 作成前に、実装セッションから独立した reviewer session による second opinion を得る。APM plain-skill mode では `cross-review` として呼び出す。実装前に runtime と対応 CLI を事前確認し、未対応 runtime や CLI 未導入の場合は明確に失敗させる（該当 skill 側の失敗時対応に従う）。
 - **`issuekit:acceptance-check` skill**: 実装・commit 後、cross-review より前に受け入れ条件の自動検査を実施する。APM plain-skill mode では `acceptance-check` として呼び出す。
 - **`issuekit:worktree-start` skill**: Claude Code の対話 session が default branch 上にいる場合に、実装直前で `EnterWorktree` による専用 worktree への切り替えに使用する (後述 step 4)。APM plain-skill mode では `worktree-start` として呼び出す。他 runtime では呼ばず、runtime 別の安全な再開手順を案内して停止する。
+- **`issuekit:issue-create` skill**: Status と完了形の single source of truth。APM plain-skill mode では `issue-create`。本 skill では定義を複製せず参照する。
 - **`gh` CLI**: GitHub 操作全般に使用する。
 
 ## スコープ
 
-- **含む**: Status 確認、Depends on の close 確認、親 issue の文脈取り込み、runtime / branch / worktree の実装隔離 preflight、Claude Code で可能な場合の worktree 切り替え、実装と適宜 commit、lint/format/型チェック、受け入れ条件チェック、cross-review、PR 作成、CI 確認・修正。
+- **含む**: Status・PR 完了形の確認、Depends on の close 確認、親 issue の文脈取り込み、runtime / branch / worktree の実装隔離 preflight、Claude Code で可能な場合の worktree 切り替え、実装と適宜 commit、lint/format/型チェック、受け入れ条件チェック、cross-review、PR 作成、CI 確認・修正。
 - **含まない**:
   - default branch 名を hardcode した branch ガード。default branch 名はリポジトリにより異なる (main / master / develop / trunk 等) ため、`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` で動的に解決した値と現在ブランチを比較する。
   - Codex App の managed worktree / Handoff の作成・操作。これらは App が所有する機能であり、skill は App 管理 worktree を作成したふりをしない。
   - Codex CLI の起動済み session を別 cwd へ安全に移せるという仮定。default branch 上では停止し、通常の `git worktree add` と `codex -C <path>` で新しい session を開始する手順を返す。
   - ユーザーが既に手動で feature ブランチに切り替えているケースの上書き。default branch 以外にいる場合は worktree 化を行わず既存ブランチを尊重する。
   - レビュー指摘の修正を `git commit --amend` / `rebase` / `fixup` で履歴整形すること。指摘対応は **追加 commit** で行い、試行錯誤やレビュー対応の経緯を履歴に残す。
+  - issue コメントだけを成果物とする調査・設計・技術検証。`issue-investigate` の対象とする。
 
 ## 実行手順
 
-### 1. issue の取得と Status 確認
+### 1. issue の取得と Status・完了形の確認
 
 ```bash
 ISSUE_NUMBER=<issue 番号>
@@ -44,6 +46,12 @@ gh issue view "$ISSUE_NUMBER" --json title,body,updatedAt,comments
   - **`Status: Ready`**: 受け入れ条件が「やったかどうか自分で判定できる」形になっている。コメント上の未解決 blocker / 本文矛盾 / 方針保留 / 受け入れ条件の未反映変更がなければ続行。
   - **`Status: Draft`**: 受け入れ条件が未確定（「仮」「要検討」を含む / 検証不能なほど曖昧）。着手しない。**worktree 化 (step 4) より前にここで early abort する**ため、worktree は作成されない。ユーザーに受け入れ条件の確認を促し、必要なら `issuekit:issue-refine` skill（APM plain-skill mode では `issue-refine`）で整理する。
   - **`Status:` 表記なし / フォーマット不完全**: 同様に worktree 化前に abort し、`issuekit:issue-refine` skill（APM plain-skill mode では `issue-refine`）での整理を案内する。
+
+Status 確認後、受け入れ条件と `## スコープ外` を `issue-create` の「成果物と完了形」に照らし、worktree 化より前に分岐する。
+
+- **PR**: repo の code / test / config / durable docs の変更が完了条件に含まれる。本 skill で続行する。
+- **issue コメント**: durable な repo 変更を要求しないコメント完結型。実装・commit を開始せず、plugin mode では `issuekit:issue-investigate <N>`、APM plain-skill mode では `issue-investigate <N>` を案内して停止する。
+- **要確認**: 両方に該当する、または判別不能。実装・commit を開始せず、`issuekit:issue-refine <N>`（APM plain-skill mode では `issue-refine <N>`）を案内して停止する。
 
 ### 2. Depends on (依存 issue) の確認
 
@@ -92,6 +100,8 @@ else
   exit 1
 fi
 ```
+
+ここに到達した時点で、対象 issue は step 1 を通過した `Status: Ready` + 完了形 `PR` である。Draft / フォーマット不完全 / コメント上の未解決事項 / コメント完結型 / 要確認はすでに停止済みである。
 
 分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報または呼び出し文脈から、その worker に排他的に割り当てられたと確認できる linked worktree を指す。専用か確認できなければ共有されている可能性があるため停止する。
 
@@ -201,5 +211,6 @@ PR URL と CI 結果（成功 / 修正後成功）をユーザーに返す。
 - step 4 で `worktree-start` を呼ぶ際に issue 番号を渡すこと。issue 番号を渡すと `worktree-start` 側の Status 判定経路に入り `issue-implement` への再帰連鎖が起きるため、タスク説明モードで slug (`<title>-<issue 番号>`) のみを渡す。
 - issue 本文や PR への `close` キーワードの自動付与（ユーザー明示指定時のみ）。
 - 受け入れ条件を満たさない状態での PR 作成。
+- コメント完結型または完了形が要確認な issue の実装・commit・PR 化。step 1 で停止し、`issue-investigate` または `issue-refine` を案内する。
 - 実行中 agent runtime に対応する CLI が未導入な状態での cross-review 省略（該当する `issuekit:cross-review` / `cross-review` skill の失敗時対応に従い、明確に失敗させる）。
 - **`acceptance-check` / `cross-review` / CI の指摘修正のために `git commit --amend` / `git rebase` / `git rebase -i` / `--fixup` / `git reset` 等で履歴を整形すること**。レビュー対応・修正対応はすべて **追加 commit** として残し、試行錯誤と修正経緯を後から追えるようにする。issuekit リポジトリは merge commit 運用（squash ではない）なので、commit 履歴は merge 後も価値を持つ。

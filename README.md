@@ -59,7 +59,7 @@ The install location depends on `--agent` and `--scope`; for Claude Code at user
 ### via `npx skills` (Claude Code, Codex CLI, Cursor, Gemini, …)
 
 ```bash
-# Install all seven skills (always installs HEAD — version pinning not yet supported)
+# Install all eight skills (always installs HEAD — version pinning not yet supported)
 npx skills add hirokisakabe/issuekit
 
 # Or install a specific skill only
@@ -87,19 +87,20 @@ issuekit assumes the following tools are available on the host:
 
 ## 🧩 Skills
 
-issuekit ships seven skills under `skills/`:
+issuekit ships eight skills under `skills/`:
 
 | Skill                | Role        | Description                                                                                                                                            |
 | -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `issue-create`       | Entry point | Open a new GitHub issue using issuekit's standard format (`Status: Ready` / `Status: Draft` header, intent, plan, acceptance criteria, out-of-scope).  |
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
-| `worktree-start`     | Entry point | **Claude Code interactive sessions only.** Switch the running session into a named git worktree via `EnterWorktree`. If already in a linked worktree, issuekit leaves it there. A `Status: Ready` issue chains into `issue-implement` after the switch. |
-| `issue-implement`    | Orchestrator| Drive the full cycle from an issue number: status check → mandatory isolation preflight → implementation / commits → acceptance check → cross-review → PR → CI. The full cycle currently requires Codex CLI or Claude Code because of `cross-review`. |
-| `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` from an issue body and reports each item as `✓ / ✗ / ?`. Called by `issue-implement` after implementation/commits, before `cross-review`. |
+| `worktree-start`     | Entry point | **Claude Code interactive sessions only.** Switch via `EnterWorktree`; reuse an existing linked worktree; route a Ready issue to `issue-implement` (PR), `issue-investigate` (issue comment), or `issue-refine` (ambiguous). |
+| `issue-implement`    | Orchestrator| Guard for PR-shaped work, then drive status check → mandatory isolation preflight → implementation / commits → acceptance check → cross-review → PR → CI. The full cycle currently requires Codex CLI or Claude Code because of `cross-review`. |
+| `issue-investigate`  | Orchestrator| Investigate, design, or run a technical spike without durable repo changes; post a structured result comment, run acceptance checks, then close the issue on success. |
+| `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` and checks repo state or issue comments, reporting each item as `✓ / ✗ / ?`. Called by both orchestrators before completion. |
 | `cross-review`       | Verifier    | Start an independent reviewer session with the current runtime's CLI and get a second-opinion code review before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
 
-`issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only Claude Code-specific entry point and owns only the in-session `EnterWorktree` transition. Codex App managed worktrees and Handoff remain App-owned, while Codex CLI users create ordinary git worktrees outside the running agent session. `worktree-start` conditionally chains into the orchestrator when invoked with a `Status: Ready` issue.
+`issue-implement` and `issue-investigate` are the two orchestrators. PR-shaped work goes through implementation, review, and CI; comment-shaped investigation work records its result on the issue and closes it without a commit or PR. `worktree-start` is the only Claude Code-specific entry point, owns only the in-session `EnterWorktree` transition, and routes a Ready issue by its acceptance criteria and out-of-scope section: PR → `issue-implement`, issue comment → `issue-investigate`, ambiguous → `issue-refine`. Codex App managed worktrees and Handoff remain App-owned, while Codex CLI users create ordinary git worktrees outside the running agent session.
 
 `Status: Draft` is reserved for issues whose acceptance criteria are not yet certain. Draft issues include a `## Ready にするための未決事項` checklist containing the concrete decisions needed to finalize those criteria; implementation-plan choices alone do not make an issue Draft.
 
@@ -126,21 +127,26 @@ A worktree is a fresh checkout. Install dependencies and initialize the environm
 
 ## 🔁 Workflow
 
-The skills compose into a single issue-driven cycle. Entry points feed an issue into the orchestrator, which calls the verifiers before producing a commit and a PR.
+The skills compose into two issue-driven completion paths. Entry points feed a Ready issue into the matching orchestrator; ambiguous completion shapes return to refinement.
 
 ```mermaid
 flowchart LR
     A[issue-create] --> I[(GitHub issue<br/>Status: Ready)]
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
-    I --> PF[issue-implement<br/>isolation preflight]
-    PF -->|Claude Code default branch| W[worktree-start]
-    W --> IMPL[implementation + commits]
+    I --> W[worktree-start<br/>completion-shape routing]
+    W -->|PR| PF[issue-implement<br/>isolation preflight]
+    W -->|issue comment| INV[issue-investigate<br/>investigation + result comment]
+    W -->|ambiguous| R
+    PF -->|Claude Code default branch| WT[worktree-start<br/>EnterWorktree]
+    WT --> IMPL[implementation + commits]
     PF -->|existing worktree / feature branch| IMPL
     PF -. unsafe runtime/location: stop .-> STOP[restart in isolated worktree]
     IMPL --> AC[acceptance-check]
     AC --> CR[cross-review]
     CR --> C[PR + CI]
+    INV --> AC2[acceptance-check]
+    AC2 --> IC[close issue]
 
     classDef entry fill:#e8f4ff,stroke:#3b82f6,color:#1e3a8a
     classDef orch  fill:#fef3c7,stroke:#d97706,color:#78350f
@@ -148,9 +154,9 @@ flowchart LR
     classDef out   fill:#f3f4f6,stroke:#6b7280,color:#1f2937
 
     class A,R,P,W entry
-    class PF,IMPL orch
-    class CR,AC ver
-    class I,C,STOP out
+    class PF,IMPL,INV orch
+    class CR,AC,AC2 ver
+    class I,C,IC,STOP out
 ```
 
 ---
@@ -163,7 +169,7 @@ Most "spec-driven" or "plan-driven" frameworks for AI coding agents store the sp
 - **Versioning volatile artifacts in git is friction.** A merged plan rots in the repo, gets stale, and pollutes diffs and search.
 - **GitHub issues are already a versioned, queryable, time-bounded plan store.** They have state (`open` / `closed`), threading, references, and a natural lifecycle that matches the work itself.
 
-So issuekit treats the **GitHub issue as the rich plan** for the work, and the repository contains only the durable artifacts (code, tests, configs). When the issue is closed, the plan disappears from the active surface area — exactly as intended.
+So issuekit treats the **GitHub issue as the rich plan** for the work, and the repository contains only durable artifacts (code, tests, configs, and explicitly required long-lived documentation). Investigation, design, and spike results default to a structured issue comment; they become repository documents only when the acceptance criteria explicitly require a durable artifact. When the issue is closed, volatile plans and results leave the active surface area — exactly as intended.
 
 This is opinionated. issuekit will not be a good fit if you want plans to live next to the code, or if your team's workflow expects spec markdown checked in.
 
@@ -182,9 +188,9 @@ issuekit shares one core idea with Spec Kit, cc-spex, and superpowers: **make th
 | [Spec Kit](https://github.com/github/spec-kit)     | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Teams that want specs versioned alongside code      |
 | [cc-spex](https://github.com/rhuss/cc-spex)        | Spec markdown checked into the repo                         | Agent re-reads the spec                                                                               | Solo / small team, lighter than Spec Kit            |
 | [superpowers](https://github.com/obra/superpowers) | Skill bundle of general-purpose engineering workflows       | Skill conventions + agent judgment                                                                    | Broad augmentation of Claude Code; not spec-centric |
-| **issuekit**                                       | GitHub issue body (`## 受け入れ条件`, `## スコープ外`, ...) | `acceptance-check` skill mechanically verifies each acceptance criterion as `✓ / ✗ / ?` before PR creation | Solo dev who already runs an issue-first workflow   |
+| **issuekit**                                       | GitHub issue body and result comments (`## 受け入れ条件`, `## スコープ外`, ...) | `acceptance-check` mechanically verifies each criterion as `✓ / ✗ / ?` before PR creation or issue close | Solo dev who already runs an issue-first workflow   |
 
-The differentiator that matters most to issuekit's design is the **verification model**. Detailed specs help agents stay on-rails, but spec compliance is itself a problem: the longer the spec, the more places the agent can drift. issuekit's response is structural rather than prescriptive — instead of writing more spec, write fewer but **mechanically verifiable** acceptance criteria, and have a dedicated skill (`acceptance-check`) check them before PR creation. The spec stays small; the verification stays honest.
+The differentiator that matters most to issuekit's design is the **verification model**. Detailed specs help agents stay on-rails, but spec compliance is itself a problem: the longer the spec, the more places the agent can drift. issuekit's response is structural rather than prescriptive — instead of writing more spec, write fewer but **mechanically verifiable** acceptance criteria, and have a dedicated skill (`acceptance-check`) check them before PR creation or issue close. The spec stays small; the verification stays honest.
 
 ---
 
