@@ -6,9 +6,9 @@ This file provides guidance to coding agents (Claude Code, Codex, etc.) when wor
 
 ## What this repository is
 
-issuekit is an **Agent Skills bundle**, not an application. It contains 7 skills as `skills/<name>/SKILL.md` markdown files, distributed via `gh skill install hirokisakabe/issuekit` (version-pinnable via GitHub Releases) and `npx skills add hirokisakabe/issuekit` (always HEAD). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
+issuekit is an **Agent Skills bundle**, not an application. It contains 8 skills as `skills/<name>/SKILL.md` markdown files, distributed via `gh skill install hirokisakabe/issuekit` (version-pinnable via GitHub Releases) and `npx skills add hirokisakabe/issuekit` (always HEAD). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
 
-The bundle codifies an **issue-driven development** workflow where the GitHub issue body is the rich plan (with `Status: Ready/Draft`, `## 受け入れ条件`, `## スコープ外`, `Depends on:`, `親: #N`), and the repository contains only durable code. See `README.md` for the philosophy and the comparison vs. Spec Kit / cc-spex / superpowers.
+The bundle codifies an **issue-driven development** workflow where the GitHub issue body is the rich plan (with `Status: Ready/Draft`, `## 受け入れ条件`, `## スコープ外`, `Depends on:`, `親: #N`), investigation results default to issue comments, and the repository contains only durable artifacts. See `README.md` for the philosophy and the comparison vs. Spec Kit / cc-spex / superpowers.
 
 ## Skill graph
 
@@ -17,8 +17,11 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` against the final repo state after implementation+commits, **before** `cross-review` so an acceptance ✗ does not waste a cross-review pass)
 - `issue-implement` → `cross-review` (second-opinion code review of the `base...HEAD` diff after `acceptance-check` passes, before PR creation; review fixes land as additional commits, not amends)
 - `issue-implement` → `worktree-start` (**conditional**, before implementation in `issue-implement` step 4): fires only when **all four** conditions hold — `EnterWorktree` is available (= Claude Code runtime), the session is outside any worktree (`git rev-parse --git-common-dir` == `--git-dir`), the current branch is the repo's default branch (`gh repo view --json defaultBranchRef`), and `Status: Ready`. `Status: Draft` triggers an early abort in step 1, so the worktree is never created for Draft issues.
-- `worktree-start` → `issue-implement` (**only** when input is an issue URL/number with `Status: Ready`; with a generic task description, `Status: Draft`, or unformatted issues it stops at the worktree switch)
-- `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` is via user only).
+- `issue-implement` guards its direct-entry path with the same completion-shape rule: only PR-shaped Ready issues continue; comment-shaped issues stop with an `issue-investigate` recommendation, and ambiguous issues stop with an `issue-refine` recommendation.
+- `worktree-start` → `issue-implement` or `issue-investigate` (**only** when input is an issue URL/number with `Status: Ready` and a clear completion shape; PR-shaped issues route to `issue-implement`, comment-shaped issues route to `issue-investigate`, and ambiguous issues stop after the worktree switch with an `issue-refine` recommendation)
+- `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` or `issue-investigate` is via user only).
+
+`issue-investigate` is the separate orchestrator for comment-complete investigation, design, and technical-validation issues. It posts a structured result comment, calls `acceptance-check`, and closes the issue only after the acceptance check succeeds. It does not commit, open a PR, or call `cross-review`. `issue-pick` suggests it via the user, while `worktree-start` may chain to it when a Ready issue's acceptance criteria require only an issue comment and no durable repo change.
 
 The `issue-implement ↔ worktree-start` edge is **bidirectional but not looping**:
 
@@ -30,7 +33,7 @@ When editing one skill, check whether others reference it. Cross-references appe
 - Plugin mode: `issuekit:<skill-name>` (e.g. `issuekit:cross-review`)
 - APM plain-skill mode: bare `<skill-name>` (e.g. `cross-review`)
 
-Both forms must stay in sync — `issue-implement` and `issue-pick` document each form explicitly.
+Both forms must stay in sync — `issue-implement`, `issue-investigate`, `issue-pick`, and `worktree-start` document each form explicitly.
 
 ## Hardcoded Japanese keywords
 
@@ -40,12 +43,13 @@ Skills mechanically parse Japanese section headers from issue bodies:
 - `Depends on: #N, #M`
 - `親: #N`
 - `## 概要` / `## 背景 / モチベーション` / `## 受け入れ条件` / `## Ready にするための未決事項` / `## スコープ外` / `## 参考` / `## 実装方針` / `## 再現手順` / `## 期待する挙動` / `## 実際の挙動` / `## 調査メモ`
+- Result comments: `## 調査結果` / `### 結論` / `### 根拠` / `### 検証内容` / `### Blocker` / `### 却下案` / `### 後続候補`
 
 These strings are not localizable in the current implementation. Forking is required to use English issues (per README).
 
 ## Status semantics (single source of truth: `issue-create`)
 
-`Status` is judged on **acceptance-criteria certainty only**, not implementation-plan certainty. A bug issue with a prioritized list of fix candidates and verifiable acceptance criteria is `Ready`. Acceptance criteria containing 「仮」/「要検討」 or that are too vague to self-verify → `Draft`. Draft issues must include `## Ready にするための未決事項`, listing only the concrete decisions needed to finalize acceptance criteria. `issue-refine` and `issue-implement` defer to `issue-create` for this rule — do not duplicate the definition; update `issue-create` and reference it.
+`Status` is judged on **acceptance-criteria certainty only**, not implementation-plan certainty. A bug issue with a prioritized list of fix candidates and verifiable acceptance criteria is `Ready`. Acceptance criteria containing 「仮」/「要検討」 or that are too vague to self-verify → `Draft`. Draft issues must include `## Ready にするための未決事項`, listing only the concrete decisions needed to finalize acceptance criteria. `issue-refine`, `issue-implement`, and `issue-investigate` defer to `issue-create` for this rule — do not duplicate the definition; update `issue-create` and reference it.
 
 ## Depends on / parent semantics
 

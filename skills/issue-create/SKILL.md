@@ -1,7 +1,7 @@
 ---
 name: issue-create
-description: "Invoke for any request to create, file, open, or record a new GitHub issue. Trigger on:\n- Direct creation: 「issue 作って」「起票して」「issue 立て(といて)」「issue 化して」「issue 作れる?」\n- Record intent: 「issue に残したい/残しておいてほしい」「issue として残しておきたい」\n- Issue types: bug reports (with repro steps), feature requests, refactoring tasks, doc fixes, code-review findings to track later\n\nDo NOT trigger for viewing, listing, searching, or implementing existing issues."
-version: 1.1.0
+description: "Invoke for any request to create, file, open, or record a new GitHub issue. Trigger on:\n- Direct creation: 「issue 作って」「起票して」「issue 立て(といて)」「issue 化して」「issue 作れる?」\n- Record intent: 「issue に残したい/残しておいてほしい」「issue として残しておきたい」\n- Issue types: bug reports (with repro steps), feature requests, refactoring tasks, doc fixes, investigation / design tasks, code-review findings to track later\n\nDo NOT trigger for viewing, listing, searching, or implementing existing issues."
+version: 1.2.0
 ---
 
 # Issue Create Skill
@@ -61,6 +61,18 @@ Status の判定軸は **受け入れ条件の確定度** 一本である。言�
 - 依存が無ければ **行ごと省略** する（空の `Depends on:` を残さない）。
 - **依存 issue の状態（open / closed）は本文に書かない。** GitHub UI 側で close 済み issue は取り消し線で表示されるため、本文に状態を書くと二重管理になり古い情報が残るリスクがある。状態を判定したいときは `gh issue view <番号> --json state` で実体を確認する。
 - `Status` との関係: `Status` は spec 自体の確定度（Ready / Draft）、`Depends on` は他 issue の完了待ちを表し、両者は独立した軸。「Ready だが Depends on あり」「Draft かつ Depends on あり」のような組み合わせもありうる。
+
+## 成果物と完了形
+
+受け入れ条件と `## スコープ外` には、issue の完了形を判定できる情報を明記する。
+
+- repo の code / test / config / durable docs の変更が完了条件に含まれる → **PR**。`issue-implement` で着手する。
+- 調査・設計・技術検証の結果を issue コメントへ記録することが完了条件で、durable な repo 変更を要求しない → **issue コメント**。`issue-investigate` で着手する。
+- 両方に該当する、または受け入れ条件とスコープ外から判別できない → **要確認**。`Status` の判定とは分けて扱い、着手前に `issue-refine` で完了形を明確にする。
+
+調査・設計 issue の成果物は、デフォルトで対象 issue の結果コメントとする。公開 API 仕様、architecture decision、継続的な運用手順など、issue close 後も継続参照される durable artifact が **受け入れ条件に明示的に必要**な場合だけ repo 文書を成果物に含める。issuekit は durable artifact の保存場所を一律に決めない。
+
+コメント完結型の受け入れ条件には、最低限「構造化した調査結果を対象 issue のコメントへ投稿する」を含め、必要な見出し・検証内容や close 条件を具体化する。`## 調査メモ` は着手前の情報であり、完了成果物の結果コメントとは区別する。
 
 ## 本文フォーマット
 
