@@ -108,7 +108,7 @@ issuekit ships eight skills under `skills/`:
 
 ## 🌳 Worktree isolation
 
-Before `issue-implement` writes files or commits, it classifies the current location as a linked worktree, a non-default feature branch, or the repository's default branch. An existing linked worktree is reused without creating another one. A single implementation on an existing feature branch is also preserved. A write-capable parallel worker is evaluated first and is stricter: **one worker must have one dedicated worktree**. If exclusive assignment cannot be established from runtime/session context, the worker stops instead of assuming a linked worktree is safe.
+Before `issue-implement` writes files or commits, it classifies the current location as a linked worktree, a non-default feature branch, or the repository's default branch. An existing linked worktree dedicated to the current issue/task is reused without creating another one; a linked worktree assigned to another task, or with unverifiable assignment, is not reused. A single implementation on an existing feature branch is also preserved. A write-capable parallel worker is evaluated first and is stricter: **one worker must have one dedicated worktree**. If exclusive assignment cannot be established from runtime/session context, the worker stops instead of assuming a linked worktree is safe.
 
 [Codex subagent workflows](https://learn.chatgpt.com/docs/agent-configuration/subagents) are available in the CLI, IDE extension, and App, but orchestration does not itself isolate file writes. Keep parallel exploration and review read-only where possible; if multiple workers write, assign each worker a separate worktree.
 

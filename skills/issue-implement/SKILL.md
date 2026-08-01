@@ -103,7 +103,7 @@ fi
 
 ここに到達した時点で、対象 issue は step 1 を通過した `Status: Ready` + 完了形 `PR` である。Draft / フォーマット不完全 / コメント上の未解決事項 / コメント完結型 / 要確認はすでに停止済みである。
 
-分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報または呼び出し文脈から、その worker に排他的に割り当てられたと確認できる linked worktree を指す。専用か確認できなければ共有されている可能性があるため停止する。
+分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報、branch / path、または呼び出し文脈から、その worker と対象 issue / task に排他的に割り当てられたと確認できる linked worktree を指す。現在の対象への割り当てを確認できない、または別 task 用なら停止し、別 worktree で再開する。
 
 | 現在位置 / 呼び出し方 | 判定 |
 | --- | --- |

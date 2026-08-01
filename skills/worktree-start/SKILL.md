@@ -78,7 +78,7 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --c
 
 - **上流 `issue-implement` からの slug / タスク説明**: worktree 切り替えだけを skip して呼び出し元へ戻る。上流はその worktree で実装を続ける。
 - **直接渡されたタスク説明**: worktree 切り替えだけを skip し、この worktree で次に何をするか確認して終了する。
-- **直接渡された issue URL / 番号**: step 2 の Status / コメント / 完了形確認へ進む。step 3 / 4 の作成は skip し、Ready なら step 5 で対応 orchestrator へ引き継ぐ。Draft / 表記なし / blocker ありなら step 6 の報告へ進む。
+- **直接渡された issue URL / 番号**: runtime / session 情報、現在 branch / path、または呼び出し文脈から、この worktree が対象 issue に専用割り当てされていると確認できる場合だけ step 2 の Status / コメント / 完了形確認へ進む。step 3 / 4 の作成は skip し、Ready なら step 5 で対応 orchestrator へ引き継ぐ。別 issue 用、または割り当てを確認できない場合は連鎖せず停止し、対象 issue 用の別 worktree で再開するよう案内する。
 
 判定は以下のいずれかで行う:
 
@@ -158,6 +158,7 @@ step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決�
 - **git リポジトリ外で呼ばれた**: `git rev-parse --is-inside-work-tree` で先に検知し、git repo 内で再実行するようユーザーへ案内する。
 - **ブランチ名衝突**: `EnterWorktree` 側のエラー出力をそのままユーザーに見せ、別のブランチ名を提示してもらう（自動でサフィックス付与等は行わない。意図しない命名を避けるため）。
 - **既存名が別 session / worker に使用されている、または排他的な割り当てを確認できない**: その worktree を開かず停止し、衝突しない別名をユーザーへ求める。同じ worktree を複数の書き込み session で共有しない。
+- **現在の linked worktree が別 issue / task 用、または対象への割り当てを確認できない**: 直接渡された issue の orchestrator へ連鎖せず停止し、対象 issue 用の別 worktree で再開するよう案内する。
 
 ## やらないこと
 
