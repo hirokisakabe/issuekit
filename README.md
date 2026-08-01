@@ -100,6 +100,8 @@ issuekit ships seven skills under `skills/`:
 
 `issue-implement` is the orchestrator; the other skills are either entry points or verifiers it calls. `worktree-start` is the only entry point that is Claude Code-specific (`EnterWorktree` is a Claude Code primitive — Codex CLI has no equivalent), so it has no fallback under other agent runtimes. It is also the only entry point that conditionally chains into the orchestrator: when invoked with an issue URL/number whose body has `Status: Ready`, it hands off to `issue-implement` after the worktree switch.
 
+`Status: Draft` is reserved for issues whose acceptance criteria are not yet certain. Draft issues include a `## Ready にするための未決事項` checklist containing the concrete decisions needed to finalize those criteria; implementation-plan choices alone do not make an issue Draft.
+
 ---
 
 ## 🔁 Workflow

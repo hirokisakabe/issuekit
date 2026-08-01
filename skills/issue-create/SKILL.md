@@ -1,7 +1,7 @@
 ---
 name: issue-create
 description: "Invoke for any request to create, file, open, or record a new GitHub issue. Trigger on:\n- Direct creation: 「issue 作って」「起票して」「issue 立て(といて)」「issue 化して」「issue 作れる?」\n- Record intent: 「issue に残したい/残しておいてほしい」「issue として残しておきたい」\n- Issue types: bug reports (with repro steps), feature requests, refactoring tasks, doc fixes, code-review findings to track later\n\nDo NOT trigger for viewing, listing, searching, or implementing existing issues."
-version: 1.0.3
+version: 1.1.0
 ---
 
 # Issue Create Skill
@@ -31,6 +31,19 @@ Status の判定軸は **受け入れ条件の確定度** 一本である。言�
 - 検証不能なほど曖昧で、「やったかどうか自分で判定できない」状態
 
 上記に該当しない場合は `Status: Ready` とする。
+
+`Status: Draft` の場合は、本文に `## Ready にするための未決事項` セクションを必ず設ける。ここには Draft であるという状態説明ではなく、**何を決めれば受け入れ条件を確定できるか**を具体的な問いのチェックリストとして記載する。
+
+```md
+## Ready にするための未決事項
+
+- [ ] 対応対象に Linux を含めるか
+- [ ] エラー時の期待結果を A / B のどちらにするか
+```
+
+- 受け入れ条件の確定を妨げている事項だけを書く。実装方法の選択肢や、着手後に調査可能な技術的詳細は含めない。
+- 未決事項が解消したら、その決定を `## 受け入れ条件` へ反映し、未決事項セクションを削除して `Status: Ready` に変更する。
+- 未決事項が 1 件でも残っている間は `Status: Draft` を維持する。
 
 実装方針の確定度は Status に絡めない。バグ issue では「方針 A を試して直らなかったら B」というプロセス自体が正しい進め方であり、方針の事前確定を強制すると実態とミスマッチする。受け入れ条件が確定していて `acceptance-check` skill で検証可能であれば、「方針 A を採用したのにバグが直っていないまま close される」事故は防げる。
 
@@ -79,6 +92,16 @@ Depends on: #123, #124 # 依存がある場合のみ。無ければ行ごと省�
 ```
 
 ### 追加セクション（必要時のみ）
+
+- **Ready にするための未決事項** — `Status: Draft` の場合に追加
+
+  受け入れ条件を確定するために必要な判断を、具体的な問いのチェックリストとして記載する。`Status: Ready` の場合はこのセクションを記載しない。
+
+  ```md
+  ## Ready にするための未決事項
+
+  - [ ] <受け入れ条件を確定するために決めること>
+  ```
 
 - **実装方針** — 方針案を記載する場合に追加
 
