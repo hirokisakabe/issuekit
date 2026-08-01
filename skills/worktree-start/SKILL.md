@@ -1,12 +1,12 @@
 ---
 name: worktree-start
-description: "Claude Code 専用。タスク説明または issue URL / 番号から命名した git worktree へ `EnterWorktree` で切り替える。Ready issue は完了形を判定し、PR なら `issue-implement`、コメント完結型なら `issue-investigate` へ連鎖し、要確認なら `issue-refine` を案内する。"
-version: 1.2.0
+description: "Claude Code 専用。起動済みの対話 session から、タスク説明または issue URL / 番号で命名した git worktree へ `EnterWorktree` で切り替える。既存 linked worktree では作成だけを no-op にする。Ready issue は完了形を判定し、PR なら `issue-implement`、コメント完結型なら `issue-investigate` へ連鎖し、要確認なら `issue-refine` を案内する。"
+version: 2.0.0
 ---
 
 # Worktree Start Skill
 
-Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起動済みセッションの cwd を新規 git worktree に切り替えて並列タスクを開始する skill。`issue-implement` は PR 完結、`issue-investigate` はコメント完結の orchestrator であり、本 skill は **issue 起点・タスク起点どちらでも入れる entry point** として完了形に応じた経路へつなぐ。
+Claude Code の `EnterWorktree` ツールを使い、起動済み対話 session の cwd を専用 git worktree に切り替えてタスクを開始する skill。`issue-implement` は PR 完結、`issue-investigate` はコメント完結の orchestrator であり、本 skill は **issue 起点・タスク起点どちらでも入れる entry point** として完了形に応じた経路へつなぐ。
 
 ## スコープ
 
@@ -14,7 +14,7 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 - **含まない**:
   - **外部タブ管理ツール (ターミナルマルチプレクサ等) との連携**: 並列タブの起動はユーザー操作のまま。
   - **Codex CLI / 他 agent 用の fallback 実装**: `EnterWorktree` は Claude Code 固有で、他 runtime には対応 primitive が存在しない。
-  - **`EnterWorktree` の `path` パラメータでクリーン命名する回避策**: `worktree-` prefix 強制を許容する方針 (issue #13 スコープ外)。
+  - **既存 worktree 間の移動**: 現行 `EnterWorktree` は `.claude/worktrees/` 配下の別 worktree へ path 指定で切り替えられるが、本 skill はタスクの二重割り当てを防ぐため、すでに linked worktree 内なら no-op とする。
   - **作成済み worktree のクリーンアップ**: `ExitWorktree` / `git worktree remove` 等は呼ばない。
   - **Draft / フォーマット不完全 / 完了形が要確認な issue の着手連鎖**: worktree 作成のみ行い `issue-refine` を案内する。
 
@@ -25,13 +25,20 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 - すでにターミナルエミュレータで素の `claude` が起動しており、これから worktree に入りたい状況。
 - `issuekit:issue-implement` skill (APM plain-skill mode では `issue-implement`) の冒頭ステップから呼ばれたとき。この場合は **Status / Depends on / 親 issue の確認は上流で完了済み**であり、本 skill 側では入力を「タスク説明モード」(後述 step 2) として扱って worktree 切り替え機能のみを提供する。詳細は後述「上流 skill (`issue-implement`) からの呼び出し」を参照。
 
-## Claude Code 限定であること
+## Runtime ごとの位置づけ
 
-本 skill は **Claude Code 専用** で、Codex CLI / Cursor / Gemini など他の agent runtime では利用できない。
+本 skill 自体は **Claude Code の対話 session 専用** で、Codex CLI / Codex App / Cursor / Gemini など他の agent runtime では利用できない。ただし worktree 隔離は各 runtime がそれぞれ所有する機能であり、次の境界を混同しない。
 
-- `EnterWorktree` ツールは Claude Code v2.1.49 (2026-02-19) で CLI に追加された Claude Code 固有の primitive である。
-- Codex CLI には worktree の概念がなく ([openai/codex#13120](https://github.com/openai/codex/issues/13120))、Codex Worktrees は Desktop app 専用機能のため CLI からは呼び出せない。
-- 他 agent からは fallback 実装を提供しない（issue #13 のスコープ外）。Codex 等で動かす場合は、ユーザーが手元で `git worktree add` を実行してから当該 worktree で agent を起動する従来手順に従うこと。
+| Runtime / 機能 | 隔離方法 | 本 skill の役割 |
+| --- | --- | --- |
+| Claude Code CLI 対話 session | 起動時は `claude --worktree <name>`、起動後は `EnterWorktree` | 起動後の `EnterWorktree` 呼び出しだけを担当する。 |
+| Claude Code subagent | frontmatter の `isolation: worktree`、または spawn 時の `isolation: "worktree"` | 作成しない。subagent runtime に委ねる。 |
+| Claude Code Agent view | background session が書き込み前に自動で専用 worktree へ移る | 作成しない。移行後の linked worktree では no-op。 |
+| Claude Desktop Code session | 新規 session ごとに自動 worktree | 作成しない。Desktop runtime に委ねる。 |
+| Codex CLI | `git worktree add` 後に `codex -C <path>` | fallback を実行しない。`issue-implement` が default branch 上で停止して再開手順を返す。 |
+| Codex App | App の managed worktree / Handoff | App 所有。skill から作成・操作しない。 |
+
+Claude Code の現在の worktree 仕様は [公式 worktree ドキュメント](https://code.claude.com/docs/en/worktrees)、Agent view は [公式 Agent view ドキュメント](https://code.claude.com/docs/en/agent-view) を参照する。
 
 ## 上流 skill (`issue-implement`) からの呼び出し
 
@@ -47,7 +54,7 @@ Claude Code が v2.1.49 で導入した `EnterWorktree` ツールを使い、起
 
 ## 依存
 
-- **Claude Code v2.1.49 以上**: `EnterWorktree` ツールを必要とする。古いバージョンでは tool not found となるため、`claude --version` で確認しユーザーへアップデートを案内する。
+- **`EnterWorktree` が利用できる Claude Code**: tool が無い場合は `claude --version` で確認し、最新版へ更新して session を再起動するか、`claude --worktree <name>` で新しい session を開始するよう案内する。
 - **`git`**: worktree 作成のために必要（`EnterWorktree` の内部で利用される）。
 - **git リポジトリ内であること**: 起動 cwd が git working tree でない場合、`EnterWorktree` は失敗する。
 
@@ -63,26 +70,32 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --c
 
 ## 実行手順
 
-### 1. 既存 worktree への再進入チェック (no-op 判定)
+### 1. 既存 worktree のチェック (issuekit 固有の no-op 判定)
 
-`EnterWorktree` ツール自体が「既に worktree 内にいるセッション」からの再進入を拒否する。本 skill ではこれに依存し、**現在のセッションが worktree 内であることを検知できた場合は何もせず終了する**（呼び出し時点で no-op）。
+**現在の session が linked worktree 内なら新しい worktree は作らない**。これは `EnterWorktree` primitive の一般的制約ではなく、「すでにタスク用 worktree にいる session を別 worktree へ動かさず、二重作成もしない」という issuekit 固有の安全方針である。現行 Claude Code は `EnterWorktree` に既存の `.claude/worktrees/` 配下 path を渡して別 worktree へ切り替えることもできるが、本 skill はその機能を使わない。
+
+その後の制御は入力ごとに分ける:
+
+- **上流 `issue-implement` からの slug / タスク説明**: worktree 切り替えだけを skip して呼び出し元へ戻る。上流はその worktree で実装を続ける。
+- **直接渡されたタスク説明**: worktree 切り替えだけを skip し、この worktree で次に何をするか確認して終了する。
+- **直接渡された issue URL / 番号**: runtime / session 情報、現在 branch / path、または呼び出し文脈から、この worktree が対象 issue に専用割り当てされていると確認できる場合だけ step 2 の Status / コメント / 完了形確認へ進む。step 3 / 4 の作成は skip し、Ready なら step 5 で対応 orchestrator へ引き継ぐ。別 issue 用、または割り当てを確認できない場合は連鎖せず停止し、対象 issue 用の別 worktree で再開するよう案内する。
 
 判定は以下のいずれかで行う:
 
 - `git rev-parse --git-common-dir` と `git rev-parse --git-dir` を比較し、異なれば worktree 内。
 - もしくは `git worktree list` の現在 path がメイン working tree と異なるかを確認。
 
-`EnterWorktree` を投機的に呼んでツール側のエラーで気付く運用は避ける。skill 側で先に判定し、ユーザーには「すでに worktree 内のため何もしません」と返す。
+`EnterWorktree` を投機的に呼ばず skill 側で先に判定し、ユーザーには「すでに専用 worktree 内のため、作成は skip してこの worktree を使います」と返す。
 
 ### 2. 入力タイプ、Status、完了形の判定
 
 ユーザー入力を以下に分類する:
 
 - **タスク説明 (issue なし)**: そのまま step 3 のブランチ名生成へ進む。issue 連鎖は行わない (step 5 はスキップ)。`issue-implement` 上流から呼ばれた場合 (= 事前生成済みブランチ名 slug が渡される) もこの経路で扱い、Status 判定や `gh issue view` は走らせない。
-- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N> --comments` で本文、title、コメントを取得する。本文先頭の `Status:` を確認し、コメントに本文未反映の補足や矛盾がないかも確認して以下に分岐する。本文とコメントが矛盾する場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できないものだけを要確認として扱う:
+- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N> --comments` で本文、title、コメントを取得する。すでに linked worktree 内なら step 3 / 4 の作成だけを skip する。本文先頭の `Status:` を確認し、コメントに本文未反映の補足や矛盾がないかも確認して以下に分岐する。本文とコメントが矛盾する場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できないものだけを要確認として扱う:
   - **`Status: Ready` かつコメントに未解決事項がない**: 受け入れ条件と `## スコープ外` を `issue-create` の「成果物と完了形」に照らす。repo 変更が完了条件なら **PR**、結果コメントだけなら **issue コメント**、両方または判別不能なら **要確認** とする。
-  - **`Status: Ready` だがコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更がある**: 完了形にかかわらず着手連鎖を行わず、ユーザー確認または `issue-refine` を案内する。
-  - **`Status: Draft`**: 着手連鎖を行わず `issuekit:issue-refine`（APM plain-skill mode では `issue-refine`）を案内する。
+  - **`Status: Ready` だがコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更がある**: 完了形にかかわらず着手連鎖を行わない。既存 linked worktree でなければ worktree を作成して切り替え、既存なら保持したうえで、ユーザー確認または `issue-refine` を案内する。
+  - **`Status: Draft`**: 着手連鎖を行わない。既存 linked worktree でなければ worktree を作成して切り替え、既存なら保持したうえで、`issuekit:issue-refine`（APM plain-skill mode では `issue-refine`）を案内する。
   - **`Status:` 表記なし / フォーマット不完全**: 同様に連鎖せず、`issue-refine` を案内する。
 
 ### 3. ブランチ名の決定
@@ -93,17 +106,19 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --c
 - **issue 入力から**: issue title から同形式の slug を生成し、末尾に `-<issue 番号>` を付与する。issue とブランチを後から照合できるようにする狙い。
   - 例: issue #42「Slack 連携の OAuth フロー」 → `slack-oauth-flow-42`
 - **ユーザー明示指定**: 「ブランチ名は `xxx` にして」と渡された場合は LLM 命名を行わずそのまま採用する。
-- prefix: `EnterWorktree` 側で `worktree-` プレフィックスが強制付与される仕様 ([Claude Code worktrees docs](https://code.claude.com/docs/en/worktrees)) を許容する。skill 側でクリーンな命名のために `path` パラメータで回避することはしない（issue #13 スコープ外）。
+- Claude Code の既定では `.claude/worktrees/<name>/` に `worktree-<name>` branch が作られる。この命名をそのまま許容する。既存名を指定すると既存 worktree が開かれる場合があるため、呼び出し前に `git worktree list` を確認する。runtime / session 文脈から現在の worker 専用と確認できる場合だけ再利用し、排他的な割り当てを確認できない場合は共有せず、衝突しない別名をユーザーへ求める。
 
 ### 4. `EnterWorktree` の呼び出し
 
-確定したブランチ名を `name` 引数に渡して `EnterWorktree` を呼ぶ。
+step 1 で既存 linked worktree と判定済みなら本 step は skip し、現在の worktree を保持する。それ以外では、確定したブランチ名を `name` 引数に渡して `EnterWorktree` を呼ぶ。
 
 ```
 EnterWorktree({ name: "slack-oauth-flow-42" })
 ```
 
 成功すれば現在のセッションの cwd が新規 worktree (`worktree-slack-oauth-flow-42` 系のブランチ + 対応ディレクトリ) に切り替わる。以降のツール呼び出しは新 worktree 上で動作する。
+
+切り替え後は `git rev-parse --git-common-dir` と `git rev-parse --git-dir` が異なることを確認する。worktree は fresh checkout なので、依存関係の install、build cache、環境初期化が必要なら実装前に行う。gitignored な `.env` 等が必要なら repository root の `.worktreeinclude` に `.gitignore` 構文で列挙する。tracked file は対象にせず、secret を含む場合はコピー先も同じ権限境界にあることを確認する。
 
 ### 5. (issue Ready 時のみ) 完了形に応じた引き継ぎ
 
@@ -122,26 +137,36 @@ step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決�
 
 ユーザーには以下を返す:
 
-- 入った worktree のパス (新 cwd) と作成されたブランチ名 (`worktree-` prefix 込み)。
+- 使用する worktree のパス (新規作成時は新 cwd) と branch 名。既存 linked worktree を再利用した場合は、その path と branch / detached HEAD 状態を返す。
 - **issue Ready で連鎖した場合**: 判定した完了形と、`issue-implement <N>` または `issue-investigate <N>` を起動済みであること。
-- **issue Ready だが完了形が要確認の場合**: 自動連鎖せず、`issue-refine` で完了形を整理する案内。worktree は既に作成済み。
-- **issue Ready だがコメント上の要確認点があり連鎖しなかった場合**: 要確認点を列挙し、ユーザー確認または `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
-- **issue Draft / 表記なしの場合**: `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
+- **issue Ready だが完了形が要確認の場合**: 自動連鎖せず、`issue-refine` で完了形を整理する案内。新規作成または再利用した worktree は保持する。
+- **issue Ready だがコメント上の要確認点があり連鎖しなかった場合**: 要確認点を列挙し、ユーザー確認または `issue-refine` で整理してから再度呼ぶ案内。新規作成または再利用した worktree は保持する。
+- **issue Draft / 表記なしの場合**: `issue-refine` で整理してから再度呼ぶ案内。新規作成または再利用した worktree は保持する。
 - **タスク説明の場合**: 「次は何をしますか?」の確認 (そのまま実装に入る、別 skill を呼ぶ、など)。
+
+## Resume / cleanup の扱い
+
+- worktree 内の session を `--resume` / `--continue` すると Claude Code はその worktree に戻る。元 worktree が無い場合は起動ディレクトリで再開する。`--fork-session` は起動ディレクトリから fork し、元 session の worktree は保持する。
+- 対話 session 終了時、clean な unnamed worktree は自動削除され、named session や変更・新規 commit がある worktree は keep / remove の確認対象になる。`-p` の非対話実行には終了確認がないため自動 cleanup されず、必要なら `git worktree remove <path>` を使う。
+- subagent / Agent view の runtime 管理 worktree は別の cleanup 規則を持つ。未変更なら自動削除され得るが、変更・未追跡 file・未 push commit がある場合は保持される。ユーザー変更を破棄する `--force` cleanup は自動実行しない。
+- worktree ごとに repository files、dependencies、build cache が増えるため disk 使用量を確認し、不要になった worktree は作業を保存したうえで整理する。
 
 ## 失敗時の対応
 
-- **`EnterWorktree` ツールが見つからない**: Claude Code が v2.1.49 未満。`claude --version` を確認し、`npm install -g @anthropic-ai/claude-code` でアップデートしてから再起動するよう案内する。
-- **「Already inside a worktree」系のエラーが返る**: skill 側の事前チェックを通り抜けてしまったケース。報告のみ行い、再呼び出しは試みない（既に目的の状態にある可能性が高い）。
+- **`EnterWorktree` ツールが見つからない**: `claude --version` を確認し、`npm install -g @anthropic-ai/claude-code` で最新版へ更新して session を再起動するか、`claude --worktree <name>` で新しい session を開始するよう案内する。
+- **切り替え後も linked worktree と確認できない**: 実装を開始せず停止し、`git worktree list` と Claude Code のエラーを確認する。既存 worktree ならその path で `claude` を開始し直す方法も案内する。
 - **git リポジトリ外で呼ばれた**: `git rev-parse --is-inside-work-tree` で先に検知し、git repo 内で再実行するようユーザーへ案内する。
 - **ブランチ名衝突**: `EnterWorktree` 側のエラー出力をそのままユーザーに見せ、別のブランチ名を提示してもらう（自動でサフィックス付与等は行わない。意図しない命名を避けるため）。
+- **既存名が別 session / worker に使用されている、または排他的な割り当てを確認できない**: その worktree を開かず停止し、衝突しない別名をユーザーへ求める。同じ worktree を複数の書き込み session で共有しない。
+- **現在の linked worktree が別 issue / task 用、または対象への割り当てを確認できない**: 直接渡された issue の orchestrator へ連鎖せず停止し、対象 issue 用の別 worktree で再開するよう案内する。
 
 ## やらないこと
 
-- **既に worktree 内にいるセッションでの再進入**: 上記 step 1 で no-op として返す。`EnterWorktree` 自体も再進入を拒否するため、二重チェック構造で安全側に倒す。
+- **既に worktree 内にいる session の別 worktree への移動**: primitive が可能でも、上記 step 1 で worktree 作成だけを issuekit 固有の no-op とする。直接 issue 入力は、現在の worktree が対象 issue 専用と確認できる場合に限り、Status・完了形確認と対応 orchestrator への連鎖を続ける。
 - **外部タブ / ペインの自動起動**: 並列タブの起動はユーザー操作のまま。skill から外部のターミナルマルチプレクサ等を直接操作しない。
 - **Draft / フォーマット不完全 / 完了形が要確認な issue の着手連鎖**: worktree 作成までで止め、`issue-refine` を案内する。Status と完了形は `issue-create` の定義に従う。
 - **タスク説明 (issue なし) 入力時の着手 orchestrator 連鎖**: issue 番号が文字列として登場しても、URL / 番号として明示入力されていなければ `gh issue view` を呼ばずタスク説明として扱う。連鎖は行わない。
-- **Codex CLI / 他 agent 用の fallback 実装**: 本 skill は Claude Code 専用。「Claude Code 限定であること」セクション参照。
+- **Codex CLI / 他 agent 用の fallback 実装**: 本 skill は Claude Code 専用。「Runtime ごとの位置づけ」セクション参照。
+- **Codex App の managed worktree / Handoff の作成・操作**: App 所有の UI / lifecycle を skill の機能として扱わない。
 - **`EnterWorktree` の `path` パラメータでクリーン命名を試みる**: `worktree-` prefix 強制を許容する方針 (issue #13 スコープ外)。
 - **作成済み worktree のクリーンアップ**: `ExitWorktree` / `git worktree remove` 等は呼ばない。worktree のライフサイクル管理はユーザー責務。

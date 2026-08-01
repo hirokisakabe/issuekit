@@ -1,7 +1,7 @@
 ---
 name: issue-implement
-description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 1.2.0
+description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、runtime と worktree の実装隔離を preflight で保証してから、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
+version: 2.0.0
 ---
 
 # Issue Implement Skill
@@ -14,16 +14,17 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 
 - **`issuekit:cross-review` skill**: 実装・commit 後、PR 作成前に、実装セッションから独立した reviewer session による second opinion を得る。APM plain-skill mode では `cross-review` として呼び出す。実装前に runtime と対応 CLI を事前確認し、未対応 runtime や CLI 未導入の場合は明確に失敗させる（該当 skill 側の失敗時対応に従う）。
 - **`issuekit:acceptance-check` skill**: 実装・commit 後、cross-review より前に受け入れ条件の自動検査を実施する。APM plain-skill mode では `acceptance-check` として呼び出す。
-- **`issuekit:worktree-start` skill**: Claude Code 環境かつ default branch 上で起動された場合に、実装直前で worktree への自動切り替えに使用する (条件付き、後述 step 4)。APM plain-skill mode では `worktree-start` として呼び出す。Claude Code 以外の runtime ではこの step は skip される。
+- **`issuekit:worktree-start` skill**: Claude Code の対話 session が default branch 上にいる場合に、実装直前で `EnterWorktree` による専用 worktree への切り替えに使用する (後述 step 4)。APM plain-skill mode では `worktree-start` として呼び出す。他 runtime では呼ばず、runtime 別の安全な再開手順を案内して停止する。
 - **`issuekit:issue-create` skill**: Status と完了形の single source of truth。APM plain-skill mode では `issue-create`。本 skill では定義を複製せず参照する。
 - **`gh` CLI**: GitHub 操作全般に使用する。
 
 ## スコープ
 
-- **含む**: Status・PR 完了形の確認、Depends on の close 確認、親 issue の文脈取り込み、worktree への自動切り替え (Claude Code 環境かつ default branch 上のときのみ、条件付き)、実装と適宜 commit、lint/format/型チェック、受け入れ条件チェック、cross-review、PR 作成、CI 確認・修正。
+- **含む**: Status・PR 完了形の確認、Depends on の close 確認、親 issue の文脈取り込み、runtime / branch / worktree の実装隔離 preflight、Claude Code で可能な場合の worktree 切り替え、実装と適宜 commit、lint/format/型チェック、受け入れ条件チェック、cross-review、PR 作成、CI 確認・修正。
 - **含まない**:
   - default branch 名を hardcode した branch ガード。default branch 名はリポジトリにより異なる (main / master / develop / trunk 等) ため、`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` で動的に解決した値と現在ブランチを比較する。
-  - 非 Claude Code 環境向けの worktree 化フォールバック。Codex CLI では `EnterWorktree` が無いためこの step を skip し、ユーザーが事前に切った worktree / branch で続行する。Cursor / Gemini など `cross-review` 未対応 runtime は、実装前の preflight で停止する。
+  - Codex App の managed worktree / Handoff の作成・操作。これらは App が所有する機能であり、skill は App 管理 worktree を作成したふりをしない。
+  - Codex CLI の起動済み session を別 cwd へ安全に移せるという仮定。default branch 上では停止し、通常の `git worktree add` と `codex -C <path>` で新しい session を開始する手順を返す。
   - ユーザーが既に手動で feature ブランチに切り替えているケースの上書き。default branch 以外にいる場合は worktree 化を行わず既存ブランチを尊重する。
   - レビュー指摘の修正を `git commit --amend` / `rebase` / `fixup` で履歴整形すること。指摘対応は **追加 commit** で行い、試行錯誤やレビュー対応の経緯を履歴に残す。
   - issue コメントだけを成果物とする調査・設計・技術検証。`issue-investigate` の対象とする。
@@ -81,26 +82,52 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state}' || true
 ```
 
-### 4. worktree への自動切り替え (条件付き)
+### 4. 実装隔離 preflight (必須)
 
-実装サイクルの冒頭で、default branch 上のまま実装を始めて main / master を直接汚す事故を機械的に防ぐためのステップ。以下の AND 条件 4 つを **すべて** 満たす場合のみ、`issuekit:worktree-start` skill (APM plain-skill mode では `worktree-start`) を呼び出して新規 worktree に切り替える。
+実装・ファイル書き込み・commit の **前** に runtime、現在 branch、worktree 状態、並列 worker かを分類する。default branch を直接変更しないことと、書き込みを伴う並列 worker が同じ working tree を共有しないことをここで保証する。後続 step 8 の `cross-review` に必要な CLI も同時に確認する。runtime は実行中 agent が明示的に把握している値を使い、`PATH` 上の CLI の存在順から推測しない。
 
-この step に入る前に、後続の step 8 で `cross-review` を実行できる runtime / CLI かを事前確認する。Codex CLI で実装している場合は `codex`、Claude Code で実装している場合は `claude` が必要。Cursor / Gemini など `cross-review` 側に手順が定義されていない runtime、または実行中 runtime を明示的に判定できない場合は、実装・commit に進む前に停止する。CLI の有無は対応するコマンドだけを `command -v` で確認し、インストール済み CLI の存在順から runtime を推測しない。
+```bash
+DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name') || { echo "default branch を取得できませんでした。" >&2; exit 1; }
+[ -n "$DEFAULT_BRANCH" ] || { echo "default branch が空です。" >&2; exit 1; }
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir) || { echo "git common dir を取得できませんでした。" >&2; exit 1; }
+GIT_DIR=$(git rev-parse --git-dir) || { echo "git dir を取得できませんでした。" >&2; exit 1; }
+if CURRENT_BRANCH=$(git symbolic-ref --quiet --short HEAD); then
+  : # branch checkout
+elif [ "$GIT_COMMON_DIR" != "$GIT_DIR" ]; then
+  CURRENT_BRANCH='' # Codex App 等の detached HEAD linked worktree は worktree 判定で扱う
+else
+  echo "main working tree が detached HEAD のため安全に分類できません。" >&2
+  exit 1
+fi
+```
 
-1. **`EnterWorktree` ツールが利用可能** (= Claude Code 環境)。Codex CLI / Cursor / Gemini 等の非 Claude Code 環境では `EnterWorktree` が存在しないため自動的に false となり、本 step は skip される。
-2. **現在のセッションが worktree の外**: `git rev-parse --git-common-dir` と `git rev-parse --git-dir` の出力が一致する。一致しなければ既に worktree 内なので skip。
-3. **現在のブランチが default branch**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` の結果と `git rev-parse --abbrev-ref HEAD` が一致する。default branch 以外 (= ユーザーが手動で feature ブランチに切り替え済み) なら skip し、既存ブランチを尊重する。
-4. **対象 issue が step 1 を通過した `Status: Ready` + 完了形 `PR`**: Draft / フォーマット不完全 / コメント上の未解決事項 / コメント完結型 / 要確認は step 1 で early abort 済みなので、ここに到達した時点で常に実装着手可能。
+ここに到達した時点で、対象 issue は step 1 を通過した `Status: Ready` + 完了形 `PR` である。Draft / フォーマット不完全 / コメント上の未解決事項 / コメント完結型 / 要確認はすでに停止済みである。
 
-呼び方は **タスク説明モード** (issue 番号は渡さない)。issue title から kebab-case の slug を生成し、末尾に `-<issue 番号>` を付けたブランチ名 (例: issue #42「Slack 連携の OAuth フロー」→ `slack-oauth-flow-42`) を指定する。issue 番号を渡すと `worktree-start` 側で Status 判定経路に入り `issue-implement` への再帰連鎖が発生してしまうため、Status は本 skill 側で既に確認済みである旨を踏まえて純粋な worktree 切り替え機能だけを使う形にする。
+分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報、branch / path、または呼び出し文脈から、その worker と対象 issue / task に排他的に割り当てられたと確認できる linked worktree を指す。現在の対象への割り当てを確認できない、または別 task 用なら停止し、別 worktree で再開する。
 
-いずれかの条件が欠ける場合は worktree を切らずにそのまま step 5 (実装) に進む:
+| 現在位置 / 呼び出し方 | 判定 |
+| --- | --- |
+| 並列 worker | **最優先。1 worker = 1 worktree を必須**とする。その worker 専用と確認できる linked worktree 内でなければ、branch 名にかかわらず実装・commit 前に停止する。同じ worktree を別 worker と共有しない。 |
+| 単独 session ですでに専用 worktree 内 | detached HEAD を含め、二重作成せずその worktree で続行する。 |
+| default branch 以外の既存 feature branch、かつ単独実装 | ユーザーの branch を上書きせず、そのまま続行する。`CURRENT_BRANCH` が空ならこの判定に入れない。 |
+| default branch | runtime 別手順で専用 worktree へ移る。安全に移行できなければ停止する。 |
 
-- preflight を通過した非 Claude Code 環境 (= Codex CLI) → ユーザーが事前に切った worktree / branch で続行。Cursor / Gemini など `cross-review` 未対応 runtime は上記の事前確認で停止済み。
-- 既に worktree 内 → 二重発火を避けるため何もしない (`worktree-start` 側の再進入チェックでも no-op になる)。
-- default branch 以外のブランチ → ユーザーが意図して feature ブランチを切っているとみなし上書きしない。
+default branch 上の runtime 別分岐:
 
-なお `worktree-start → issue-implement → worktree-start` の循環は、2 度目の `worktree-start` 呼び出しが上記条件 2 で worktree 内と判定され自動的に no-op になるため発生しない。
+- **Claude Code 対話 session**: `EnterWorktree` が利用できる場合だけ `issuekit:worktree-start` (APM plain-skill mode では `worktree-start`) を呼ぶ。issue title から作った `<title-slug>-<issue 番号>` を **タスク説明モード**で渡し、切り替え後に `GIT_COMMON_DIR != GIT_DIR` を再確認してから続行する。`EnterWorktree` が無い旧版や、切り替えに失敗した場合は停止し、`claude --worktree <title-slug>-<issue 番号>` で新しい session を開始して `issue-implement <issue 番号>` を再実行するよう案内する。
+- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み session の cwd を skill が安全に移せると仮定せず停止し、衝突しない実パスと branch 名を決めたうえで次の再開例を返す。
+
+  ```bash
+  git worktree add ../<repo>.<title-slug>-<issue番号> -b <title-slug>-<issue番号> "$DEFAULT_BRANCH"
+  codex -C ../<repo>.<title-slug>-<issue番号>
+  # 新しい session で issue-implement <issue番号> を再実行
+  ```
+
+- **Codex App**: App の **Worktree** で開始済み、または **Handoff** で managed worktree へ移動済みなら続行する。Local の default branch 上なら実装前に停止し、App UI で Worktree chat を開始するか Handoff してから再実行するよう案内する。managed worktree / Handoff は runtime 所有であり、skill 自身は作成・操作しない。
+- **Claude Code Agent view / Desktop**: Agent view の background session と Desktop の新規 Code session は runtime が自動隔離する。実際に linked worktree へ移ったことを確認して続行する。移行前の main checkout では書き込みを始めない。
+- **未対応 runtime**: default branch 上では停止する。対応する reviewer-session launch 手順も無ければ、cross-review preflight の時点でも停止する。
+
+`Status: Draft` / フォーマット不完全 / コメント上の blocker は step 1 で early abort 済みなので、この preflight に到達しない。`worktree-start → issue-implement` で入った場合は linked worktree 判定により二重作成しない。
 
 ### 5. 実装（必要に応じて適宜 commit）
 
@@ -177,8 +204,10 @@ PR URL と CI 結果（成功 / 修正後成功）をユーザーに返す。
 ## やらないこと
 
 - default branch 名 (`main` / `master` / `develop` 等) を hardcode した branch ガード。step 4 の判定は `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` の結果と動的に比較する。
-- 非 Claude Code 環境向けの worktree 化フォールバック実装。`EnterWorktree` ツールが無い環境では step 4 を skip し、ユーザーが事前に切った worktree / branch でそのまま続行する。
-- 既に default branch 以外のブランチで作業しているユーザーへの worktree 強制切り替え。step 4 の条件 3 で skip する (= 既存 feature ブランチを尊重)。
+- default branch 上で worktree 化を単に skip して実装へ進むこと。runtime が安全に切り替えられなければ、書き込み・commit 前に停止して再開手順を返す。
+- Codex CLI の起動済み session の cwd を skill が変更すること、または Codex App の managed worktree / Handoff を skill が作成・操作すること。
+- 書き込みを伴う並列 worker が同じ worktree を共有すること。並列 worker は branch 名にかかわらず 1 worker = 1 worktree とする。
+- 単独実装で、すでに default branch 以外の feature branch にいるユーザーへの worktree 強制切り替え。step 4 の分類で既存 branch を尊重する。
 - step 4 で `worktree-start` を呼ぶ際に issue 番号を渡すこと。issue 番号を渡すと `worktree-start` 側の Status 判定経路に入り `issue-implement` への再帰連鎖が起きるため、タスク説明モードで slug (`<title>-<issue 番号>`) のみを渡す。
 - issue 本文や PR への `close` キーワードの自動付与（ユーザー明示指定時のみ）。
 - 受け入れ条件を満たさない状態での PR 作成。
