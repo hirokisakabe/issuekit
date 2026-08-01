@@ -1,6 +1,6 @@
 ---
 name: worktree-start
-description: "Claude Code 専用。起動済みの対話 session から、タスク説明または issue URL / 番号で命名した git worktree へ `EnterWorktree` で切り替える。既存 linked worktree では issuekit の安全策として no-op にし、issue URL / 番号が Status: Ready かつコメント上の未解決事項なしなら切り替え後に `issue-implement` へ自動連鎖する。"
+description: "Claude Code 専用。起動済みの対話 session から、タスク説明または issue URL / 番号で命名した git worktree へ `EnterWorktree` で切り替える。既存 linked worktree では worktree 作成だけを issuekit の安全策として no-op にし、issue URL / 番号が Status: Ready かつコメント上の未解決事項なしなら `issue-implement` へ自動連鎖する。"
 version: 1.1.0
 ---
 
@@ -72,24 +72,30 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --c
 
 ### 1. 既存 worktree のチェック (issuekit 固有の no-op 判定)
 
-**現在の session が linked worktree 内なら何もせず終了する**。これは `EnterWorktree` primitive の一般的制約ではなく、「すでにタスク用 worktree にいる session を別 worktree へ動かさず、二重作成もしない」という issuekit 固有の安全方針である。現行 Claude Code は `EnterWorktree` に既存の `.claude/worktrees/` 配下 path を渡して別 worktree へ切り替えることもできるが、本 skill はその機能を使わない。
+**現在の session が linked worktree 内なら新しい worktree は作らない**。これは `EnterWorktree` primitive の一般的制約ではなく、「すでにタスク用 worktree にいる session を別 worktree へ動かさず、二重作成もしない」という issuekit 固有の安全方針である。現行 Claude Code は `EnterWorktree` に既存の `.claude/worktrees/` 配下 path を渡して別 worktree へ切り替えることもできるが、本 skill はその機能を使わない。
+
+その後の制御は入力ごとに分ける:
+
+- **上流 `issue-implement` からの slug / タスク説明**: worktree 切り替えだけを skip して呼び出し元へ戻る。上流はその worktree で実装を続ける。
+- **直接渡されたタスク説明**: worktree 切り替えだけを skip し、この worktree で次に何をするか確認して終了する。
+- **直接渡された issue URL / 番号**: step 2 の Status / コメント確認へ進む。step 3 / 4 の作成は skip し、Ready なら step 5 で `issue-implement` へ引き継ぐ。Draft / 表記なし / blocker ありなら step 6 の報告へ進む。
 
 判定は以下のいずれかで行う:
 
 - `git rev-parse --git-common-dir` と `git rev-parse --git-dir` を比較し、異なれば worktree 内。
 - もしくは `git worktree list` の現在 path がメイン working tree と異なるかを確認。
 
-`EnterWorktree` を投機的に呼ばず skill 側で先に判定し、ユーザーには「すでに専用 worktree 内のため、この worktree で続行します」と返す。
+`EnterWorktree` を投機的に呼ばず skill 側で先に判定し、ユーザーには「すでに専用 worktree 内のため、作成は skip してこの worktree を使います」と返す。
 
 ### 2. 入力タイプの判定と issue 取得
 
 ユーザー入力を以下に分類する:
 
 - **タスク説明 (issue なし)**: そのまま step 3 のブランチ名生成へ進む。issue 連鎖は行わない (step 5 はスキップ)。`issue-implement` 上流から呼ばれた場合 (= 事前生成済みブランチ名 slug が渡される) もこの経路で扱い、Status 判定や `gh issue view` は走らせない。
-- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N> --comments` で本文、title、コメントを取得する。本文先頭の `Status:` を確認し、コメントに本文未反映の補足や矛盾がないかも確認して以下に分岐する。本文とコメントが矛盾する場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できないものだけを要確認として扱う:
-  - **`Status: Ready` かつコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更が無い**: 連鎖対象。step 3 でブランチ名を生成し、step 4 完了後 step 5 で `issue-implement` へ引き継ぐ。
-  - **`Status: Ready` だがコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更がある**: 受け入れ条件や前提が揺らいでいるため `issue-implement` への連鎖は **行わない**。worktree は作成して切り替えるが、step 6 の完了報告でコメント上の要確認点を示し、ユーザー確認または `issue-refine` での整理を案内する。
-  - **`Status: Draft`**: 受け入れ条件が未確定なため `issue-implement` への連鎖は **行わない**。worktree は作成して切り替えるが、step 6 の完了報告で `issuekit:issue-refine` skill (APM plain-skill mode では `issue-refine`) での整理を案内する。
+- **issue URL / 番号**: URL から番号を抽出し、`gh issue view <N> --comments` で本文、title、コメントを取得する。すでに linked worktree 内なら step 3 / 4 の作成だけを skip する。本文先頭の `Status:` を確認し、コメントに本文未反映の補足や矛盾がないかも確認して以下に分岐する。本文とコメントが矛盾する場合は、`updatedAt` やコメント時系列を踏まえて最新の意図を推定し、判断できないものだけを要確認として扱う:
+  - **`Status: Ready` かつコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更が無い**: 連鎖対象。既存 linked worktree でなければ step 3 / 4 で作成・切り替え、既存ならその2 stepを skip して、step 5 で `issue-implement` へ引き継ぐ。
+  - **`Status: Ready` だがコメントに未解決 blocker / 本文との矛盾 / 方針保留 / 受け入れ条件の未反映変更がある**: 受け入れ条件や前提が揺らいでいるため `issue-implement` への連鎖は **行わない**。既存 linked worktree でなければ worktree を作成して切り替え、既存なら保持したうえで、step 6 の完了報告でコメント上の要確認点を示す。
+  - **`Status: Draft`**: 受け入れ条件が未確定なため `issue-implement` への連鎖は **行わない**。既存 linked worktree でなければ worktree を作成して切り替え、既存なら保持したうえで、step 6 の完了報告で `issuekit:issue-refine` skill (APM plain-skill mode では `issue-refine`) での整理を案内する。
   - **`Status:` 表記なし / フォーマット不完全**: 同様に連鎖せず、`issue-refine` を案内する。
 
 ### 3. ブランチ名の決定
@@ -104,7 +110,7 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --c
 
 ### 4. `EnterWorktree` の呼び出し
 
-確定したブランチ名を `name` 引数に渡して `EnterWorktree` を呼ぶ。
+step 1 で既存 linked worktree と判定済みなら本 step は skip し、現在の worktree を保持する。それ以外では、確定したブランチ名を `name` 引数に渡して `EnterWorktree` を呼ぶ。
 
 ```
 EnterWorktree({ name: "slack-oauth-flow-42" })
@@ -127,10 +133,10 @@ step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決 
 
 ユーザーには以下を返す:
 
-- 入った worktree のパス (新 cwd) と作成されたブランチ名 (`worktree-` prefix 込み)。
+- 使用する worktree のパス (新規作成時は新 cwd) と branch 名。既存 linked worktree を再利用した場合は、その path と branch / detached HEAD 状態を返す。
 - **issue Ready で連鎖した場合**: `issue-implement <N>` を起動済みで、続けて issue サイクルが進むこと。
-- **issue Ready だがコメント上の要確認点があり連鎖しなかった場合**: 要確認点を列挙し、ユーザー確認または `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
-- **issue Draft / 表記なしの場合**: `issue-refine` で整理してから再度呼ぶ案内。worktree は既に作成済み。
+- **issue Ready だがコメント上の要確認点があり連鎖しなかった場合**: 要確認点を列挙し、ユーザー確認または `issue-refine` で整理してから再度呼ぶ案内。新規作成または再利用した worktree は保持する。
+- **issue Draft / 表記なしの場合**: `issue-refine` で整理してから再度呼ぶ案内。新規作成または再利用した worktree は保持する。
 - **タスク説明の場合**: 「次は何をしますか?」の確認 (そのまま実装に入る、別 skill を呼ぶ、など)。
 
 ## Resume / cleanup の扱い
@@ -149,7 +155,7 @@ step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決 
 
 ## やらないこと
 
-- **既に worktree 内にいる session の別 worktree への移動**: primitive が可能でも、上記 step 1 で issuekit 固有の no-op とする。
+- **既に worktree 内にいる session の別 worktree への移動**: primitive が可能でも、上記 step 1 で worktree 作成だけを issuekit 固有の no-op とする。直接 issue 入力の Status 確認と `issue-implement` 連鎖まで止めない。
 - **外部タブ / ペインの自動起動**: 並列タブの起動はユーザー操作のまま。skill から外部のターミナルマルチプレクサ等を直接操作しない。
 - **Status: Draft / フォーマット不完全な issue 入力時の `issue-implement` 連鎖**: 受け入れ条件が確定していない issue は着手対象外。worktree 作成までで止め、`issue-refine` を案内する。Status の判定軸は `issue-create` の定義 (受け入れ条件の確定度) に従う。
 - **タスク説明 (issue なし) 入力時の `issue-implement` 連鎖**: issue 番号が文字列として登場しても、URL / 番号として明示入力されていなければ `gh issue view` を呼ばずタスク説明として扱う。連鎖は行わない。

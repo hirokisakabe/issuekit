@@ -60,8 +60,8 @@ These strings are not localizable in the current implementation. Forking is requ
 
 `issue-implement` step 4 is a mandatory isolation preflight. It resolves the default branch dynamically, checks `git rev-parse --git-common-dir` against `--git-dir`, and classifies the runtime/location before any implementation write or commit:
 
-- A linked worktree continues without double creation. A non-default feature branch is preserved for a single implementation.
-- A write-capable parallel worker requires **one worker = one worktree** even if it is already on a feature branch; workers never share a working tree.
+- A linked worktree continues without double creation. A non-default feature branch is preserved for a single implementation. A main working tree in detached HEAD stops as unclassifiable; a runtime-owned detached HEAD linked worktree (such as Codex App) is allowed.
+- A write-capable parallel worker is evaluated first and requires **one worker = one worktree** even if it is already on a feature branch. Continue only when runtime/session context establishes that the linked worktree is dedicated to that worker; otherwise stop.
 - Default-branch execution must move to a dedicated worktree or stop before implementation. There is no skip-and-continue path.
 - Codex CLI stops and instructs the user to run ordinary `git worktree add`, then `codex -C <path>` in a new session. The running session is not assumed to migrate cwd.
 - Codex App managed worktrees and Handoff are App-owned. Skills may verify that the chat is isolated or tell the user to use the App UI, but must not claim to create or control App-managed worktrees.

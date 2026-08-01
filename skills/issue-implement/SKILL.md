@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、runtime と worktree の実装隔離を preflight で保証してから、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 1.1.0
+version: 2.0.0
 ---
 
 # Issue Implement Skill
@@ -79,20 +79,27 @@ gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/parent" --jq '{number, title, state
 実装・ファイル書き込み・commit の **前** に runtime、現在 branch、worktree 状態、並列 worker かを分類する。default branch を直接変更しないことと、書き込みを伴う並列 worker が同じ working tree を共有しないことをここで保証する。後続 step 8 の `cross-review` に必要な CLI も同時に確認する。runtime は実行中 agent が明示的に把握している値を使い、`PATH` 上の CLI の存在順から推測しない。
 
 ```bash
-DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
-[ -n "$DEFAULT_BRANCH" ] || { echo "default branch を取得できませんでした。" >&2; exit 1; }
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
-GIT_DIR=$(git rev-parse --git-dir)
+DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name') || { echo "default branch を取得できませんでした。" >&2; exit 1; }
+[ -n "$DEFAULT_BRANCH" ] || { echo "default branch が空です。" >&2; exit 1; }
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir) || { echo "git common dir を取得できませんでした。" >&2; exit 1; }
+GIT_DIR=$(git rev-parse --git-dir) || { echo "git dir を取得できませんでした。" >&2; exit 1; }
+if CURRENT_BRANCH=$(git symbolic-ref --quiet --short HEAD); then
+  : # branch checkout
+elif [ "$GIT_COMMON_DIR" != "$GIT_DIR" ]; then
+  CURRENT_BRANCH='' # Codex App 等の detached HEAD linked worktree は worktree 判定で扱う
+else
+  echo "main working tree が detached HEAD のため安全に分類できません。" >&2
+  exit 1
+fi
 ```
 
-分類後は次の表に従う。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なる linked worktree を指す。
+分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報または呼び出し文脈から、その worker に排他的に割り当てられたと確認できる linked worktree を指す。専用か確認できなければ共有されている可能性があるため停止する。
 
 | 現在位置 / 呼び出し方 | 判定 |
 | --- | --- |
-| すでに専用 worktree 内 | 二重作成せず、その worktree で続行する。 |
-| default branch 以外の既存 feature branch、かつ単独実装 | ユーザーの branch を上書きせず、そのまま続行する。 |
-| 並列 worker | **1 worker = 1 worktree を必須**とする。専用 worktree 内でなければ、branch 名にかかわらず実装・commit 前に停止する。同じ worktree を別 worker と共有しない。 |
+| 並列 worker | **最優先。1 worker = 1 worktree を必須**とする。その worker 専用と確認できる linked worktree 内でなければ、branch 名にかかわらず実装・commit 前に停止する。同じ worktree を別 worker と共有しない。 |
+| 単独 session ですでに専用 worktree 内 | detached HEAD を含め、二重作成せずその worktree で続行する。 |
+| default branch 以外の既存 feature branch、かつ単独実装 | ユーザーの branch を上書きせず、そのまま続行する。`CURRENT_BRANCH` が空ならこの判定に入れない。 |
 | default branch | runtime 別手順で専用 worktree へ移る。安全に移行できなければ停止する。 |
 
 default branch 上の runtime 別分岐:
