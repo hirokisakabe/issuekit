@@ -39,13 +39,13 @@ Skills mechanically parse Japanese section headers from issue bodies:
 - `Status: Ready` / `Status: Draft` (must be at the **top** of the body)
 - `Depends on: #N, #M`
 - `親: #N`
-- `## 概要` / `## 背景 / モチベーション` / `## 受け入れ条件` / `## スコープ外` / `## 参考` / `## 実装方針` / `## 再現手順` / `## 期待する挙動` / `## 実際の挙動` / `## 調査メモ`
+- `## 概要` / `## 背景 / モチベーション` / `## 受け入れ条件` / `## Ready にするための未決事項` / `## スコープ外` / `## 参考` / `## 実装方針` / `## 再現手順` / `## 期待する挙動` / `## 実際の挙動` / `## 調査メモ`
 
 These strings are not localizable in the current implementation. Forking is required to use English issues (per README).
 
 ## Status semantics (single source of truth: `issue-create`)
 
-`Status` is judged on **acceptance-criteria certainty only**, not implementation-plan certainty. A bug issue with a prioritized list of fix candidates and verifiable acceptance criteria is `Ready`. Acceptance criteria containing 「仮」/「要検討」 or that are too vague to self-verify → `Draft`. `issue-refine` and `issue-implement` defer to `issue-create` for this rule — do not duplicate the definition; update `issue-create` and reference it.
+`Status` is judged on **acceptance-criteria certainty only**, not implementation-plan certainty. A bug issue with a prioritized list of fix candidates and verifiable acceptance criteria is `Ready`. Acceptance criteria containing 「仮」/「要検討」 or that are too vague to self-verify → `Draft`. Draft issues must include `## Ready にするための未決事項`, listing only the concrete decisions needed to finalize acceptance criteria. `issue-refine` and `issue-implement` defer to `issue-create` for this rule — do not duplicate the definition; update `issue-create` and reference it.
 
 ## Depends on / parent semantics
 
