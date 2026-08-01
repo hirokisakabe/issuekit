@@ -1,7 +1,7 @@
 ---
 name: issue-pick
 description: "Use when the user has NOT yet decided which issue to work on and needs help choosing. This is the pre-decision advisory phase: the user is weighing multiple open issues and wants structured guidance — not implementation. Key triggers: asking which issue to prioritize or tackle next, identifying which issues are blocked vs. ready to start independently, selecting issues that fit limited capacity (small/high-impact), or finding independent issues for parallel worktree sessions. The user's state is \"I have several candidates and don't know where to start.\" Provides ranked recommendation (1 pick + 1-2 alternates) across impact/dependencies/size/urgency — read-only, no state changes."
-version: 1.0.4
+version: 1.1.0
 ---
 
 # Issue Pick Skill
@@ -16,7 +16,7 @@ version: 1.0.4
   - **ranking の永続化**: 出力は揮発的な advisory に留め、優先度を保存する仕組みを持たない。
   - **重み付け**: 観点ごとの重み付けやスコアリングはしない。文脈依存の判断 (好み・気分・直近の関心) は人間に委ねる。
   - **assigned filter**: 個人リポジトリでは無意味のため非対応。
-  - **自動着手**: `issuekit:issue-implement` skill との連携は user 経由のみ。APM plain-skill mode では `issue-implement` として案内する。skill 内で chain しない。
+  - **自動着手**: `issuekit:issue-implement` / `issuekit:issue-investigate` skill との連携は user 経由のみ。APM plain-skill mode では bare skill 名で案内する。skill 内で chain しない。
 
 ## 依存
 
@@ -45,7 +45,7 @@ gh issue list --state open --limit 1000 --json number,title,labels,body,createdA
 
 各 issue の本文先頭の `Status:` 行を確認し、対象を絞り込む。
 
-- **デフォルト**: `Status: Ready` の issue のみを残す。`Status:` 表記が無い issue や `Status: Draft` の issue は **除外** する (それらは `issuekit:issue-implement`、または APM plain-skill mode の `issue-implement` で Ready 確認時にも弾かれるため、推奨に含めると整合しない)。
+- **デフォルト**: `Status: Ready` の issue のみを残す。`Status:` 表記が無い issue や `Status: Draft` の issue は **除外** する (着手 orchestrator は Ready 確認時に弾くため、推奨に含めると整合しない)。
 - **`--include-draft` 指定時**: `Status: Ready` と `Status: Draft` の issue を残す。`Status:` 表記が無い issue は依然として除外する。
 - フォーマット不完全な issue があった場合は、出力末尾の hint に「`/issuekit:issue-refine <番号>` で整理を促す」旨を案内してよい (推奨候補としては扱わない)。
 
@@ -102,7 +102,7 @@ done
 
 親 issue 本文の取得には別途 `gh issue view <親番号>` が必要。blocker 判定が出力に効く場合のみ取得し、不要な fetch は避ける。
 
-### 5. 4 観点での構造化
+### 5. 4 観点と完了形での構造化
 
 各候補 issue について、以下 4 観点で判断材料を整理する。
 
@@ -114,6 +114,12 @@ done
 | **緊急度**        | 期限・障害影響・他作業のブロッカー性などの時間的要素               |
 
 各観点は issue 本文・コメント・labels・親子関係から読み取れる範囲で整理し、推測が必要な場合は「(推測)」と明示する。コメント上の要確認点がある issue は、推奨 / 補欠ではなく要確認候補として分離する。
+
+4 観点は維持したまま、各候補の受け入れ条件と `## スコープ外` を `issue-create` の「成果物と完了形」に照らして、次のいずれかを必ず併記する。
+
+- **PR**: repo の code / test / config / durable docs の変更が完了条件に含まれる。
+- **issue コメント**: 調査・設計・技術検証の結果コメントが完了条件で、durable な repo 変更を要求しない。
+- **要確認**: 両方に該当する、または判別不能。Status が Ready でも自動着手先を決めず `issue-refine` を案内する。
 
 ### 6. 推奨と補欠の提示
 
@@ -128,8 +134,9 @@ done
 
 markdown 散文 + 観点別の箇条書きで出力する。出力末尾には次のアクションを促す **hint 行** を必ず含める。推奨 issue の Status により hint を分岐させる:
 
-- 推奨が `Status: Ready`: plugin mode では `/issuekit:issue-implement <番号>`、APM plain-skill mode では `issue-implement <番号>` を案内する。
-- 推奨が `Status: Draft` (`--include-draft` 指定時のみ): plugin mode では `/issuekit:issue-refine <番号>`、APM plain-skill mode では `issue-refine <番号>` で先に Ready 化を促す (`issuekit:issue-implement` / `issue-implement` は Draft を弾くため)。
+- 推奨が `Status: Ready` + 完了形 `PR`: plugin mode では `/issuekit:issue-implement <番号>`、APM plain-skill mode では `issue-implement <番号>` を案内する。
+- 推奨が `Status: Ready` + 完了形 `issue コメント`: plugin mode では `/issuekit:issue-investigate <番号>`、APM plain-skill mode では `issue-investigate <番号>` を案内する。
+- 推奨が完了形 `要確認`、または `Status: Draft` (`--include-draft` 指定時のみ): plugin mode では `/issuekit:issue-refine <番号>`、APM plain-skill mode では `issue-refine <番号>` を案内する。
 
 ```md
 ## 着手候補
@@ -140,6 +147,7 @@ markdown 散文 + 観点別の箇条書きで出力する。出力末尾には�
 - 依存・blocker: ...
 - 規模: ...
 - 緊急度: ...
+- 完了形: PR / issue コメント / 要確認
 
 理由: <4 観点のどれを重視したかを含めた散文の説明>
 
@@ -149,6 +157,7 @@ markdown 散文 + 観点別の箇条書きで出力する。出力末尾には�
 - 依存・blocker: ...
 - 規模: ...
 - 緊急度: ...
+- 完了形: PR / issue コメント / 要確認
 
 理由: <なぜ推奨ではなく補欠なのか>
 
@@ -161,9 +170,9 @@ markdown 散文 + 観点別の箇条書きで出力する。出力末尾には�
 
 ---
 
-着手する場合は `/issuekit:issue-implement <番号>` を呼んでください。
-APM plain-skill mode では `issue-implement <番号>` を呼んでください。
-(推奨が Draft の場合は代わりに `/issuekit:issue-refine <番号>`、APM plain-skill mode では `issue-refine <番号>` を案内)
+PR に着手する場合は `/issuekit:issue-implement <番号>`、issue コメント完結の調査に着手する場合は `/issuekit:issue-investigate <番号>` を呼んでください。
+APM plain-skill mode ではそれぞれ `issue-implement <番号>` / `issue-investigate <番号>` を呼んでください。
+(推奨が Draft または完了形が要確認の場合は `/issuekit:issue-refine <番号>`、APM plain-skill mode では `issue-refine <番号>` を案内)
 ```
 
 ## 重み付けについて
@@ -190,5 +199,5 @@ skill は **観点を統一フォーマットで提示するところまで** �
 - **issue body / labels / Projects v2 等の state 変更**: 本 skill は完全に read-only。
 - **ranking 全件の出力**: 推奨 1 + 補欠 1〜2 件のみ。優先度の永続化と紛らわしくしないため。
 - **重み付け / スコアリング**: 観点を提示するに留め、数値化はしない。
-- **`issuekit:issue-implement` への自動 chain**: 出力末尾の hint 行のみ。APM plain-skill mode では `issue-implement` として案内する。skill 内で自動呼び出しはしない。
+- **着手 orchestrator への自動 chain**: `issuekit:issue-implement` / `issuekit:issue-investigate` は出力末尾の hint 行で案内するだけ。APM plain-skill mode では bare skill 名として案内し、skill 内で自動呼び出しはしない。
 - **assigned filter**: 個人リポジトリでは無意味のためサポートしない。
