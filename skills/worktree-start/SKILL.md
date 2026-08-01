@@ -162,7 +162,7 @@ step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決�
 
 ## やらないこと
 
-- **既に worktree 内にいる session の別 worktree への移動**: primitive が可能でも、上記 step 1 で worktree 作成だけを issuekit 固有の no-op とする。直接 issue 入力の Status・完了形確認と対応 orchestrator への連鎖までは止めない。
+- **既に worktree 内にいる session の別 worktree への移動**: primitive が可能でも、上記 step 1 で worktree 作成だけを issuekit 固有の no-op とする。直接 issue 入力は、現在の worktree が対象 issue 専用と確認できる場合に限り、Status・完了形確認と対応 orchestrator への連鎖を続ける。
 - **外部タブ / ペインの自動起動**: 並列タブの起動はユーザー操作のまま。skill から外部のターミナルマルチプレクサ等を直接操作しない。
 - **Draft / フォーマット不完全 / 完了形が要確認な issue の着手連鎖**: worktree 作成までで止め、`issue-refine` を案内する。Status と完了形は `issue-create` の定義に従う。
 - **タスク説明 (issue なし) 入力時の着手 orchestrator 連鎖**: issue 番号が文字列として登場しても、URL / 番号として明示入力されていなければ `gh issue view` を呼ばずタスク説明として扱う。連鎖は行わない。
