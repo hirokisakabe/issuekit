@@ -106,7 +106,7 @@ issue URL / 番号が渡された場合は、本 skill 側で `gh issue view --c
 - **issue 入力から**: issue title から同形式の slug を生成し、末尾に `-<issue 番号>` を付与する。issue とブランチを後から照合できるようにする狙い。
   - 例: issue #42「Slack 連携の OAuth フロー」 → `slack-oauth-flow-42`
 - **ユーザー明示指定**: 「ブランチ名は `xxx` にして」と渡された場合は LLM 命名を行わずそのまま採用する。
-- Claude Code の既定では `.claude/worktrees/<name>/` に `worktree-<name>` branch が作られる。この命名をそのまま許容する。既存名を再利用すると、状態に応じて既存 worktree が開かれるため、呼び出し前に `git worktree list` で意図した対象か確認する。
+- Claude Code の既定では `.claude/worktrees/<name>/` に `worktree-<name>` branch が作られる。この命名をそのまま許容する。既存名を指定すると既存 worktree が開かれる場合があるため、呼び出し前に `git worktree list` を確認する。runtime / session 文脈から現在の worker 専用と確認できる場合だけ再利用し、排他的な割り当てを確認できない場合は共有せず、衝突しない別名をユーザーへ求める。
 
 ### 4. `EnterWorktree` の呼び出し
 
@@ -157,6 +157,7 @@ step 2 で **issue URL / 番号 + `Status: Ready` + コメント上の未解決�
 - **切り替え後も linked worktree と確認できない**: 実装を開始せず停止し、`git worktree list` と Claude Code のエラーを確認する。既存 worktree ならその path で `claude` を開始し直す方法も案内する。
 - **git リポジトリ外で呼ばれた**: `git rev-parse --is-inside-work-tree` で先に検知し、git repo 内で再実行するようユーザーへ案内する。
 - **ブランチ名衝突**: `EnterWorktree` 側のエラー出力をそのままユーザーに見せ、別のブランチ名を提示してもらう（自動でサフィックス付与等は行わない。意図しない命名を避けるため）。
+- **既存名が別 session / worker に使用されている、または排他的な割り当てを確認できない**: その worktree を開かず停止し、衝突しない別名をユーザーへ求める。同じ worktree を複数の書き込み session で共有しない。
 
 ## やらないこと
 
