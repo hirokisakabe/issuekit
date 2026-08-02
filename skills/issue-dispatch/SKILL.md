@@ -1,7 +1,7 @@
 ---
 name: issue-dispatch
 description: 1件以上の着手可能な GitHub issue を、1 issue = 1 worker = 1 worktree = 1 branch = 1 PR で安全に実装するときに使う上位 orchestrator。単一 issue URL / 番号、明示的な issue リスト、「Ready なリファクタ issue を最大5件」のような選定条件を受け取り、Status・コメント・依存 DAG・親 issue・変更範囲の競合・runtime・approval / sandbox / GitHub 認証を preflight してから、専用 worktree の issue-implement worker へ直列または並列 dispatch し、PR と CI を集約する。複数 issue の並列実装、または Codex CLI の default branch 上から単一 issue を再起動なしで実装したい依頼では必ず使う。
-version: 1.0.0
+version: 2.1.0
 ---
 
 # Issue Dispatch Skill
