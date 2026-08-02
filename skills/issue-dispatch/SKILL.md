@@ -112,7 +112,7 @@ parent endpoint が失敗した場合は `gh` の HTTP status を確認し、404
 - directory が分離し、cross-reference や生成物の共有がない組み合わせだけを **独立** とする。
 - 情報不足で独立性を証明できない組み合わせは **判定不能** とし、実装前に想定範囲と懸念をユーザーへ示して確認する。無回答のまま自動並列化しない。
 
-高競合 issue は同じ並列 group に入れず直列化する。先行 issue の変更が後続の base に必要なら、先行 issue が close され default branch に入るまで後続を blocked / waiting とする。未 merge の先行 branch を後続 branch の base にして複数 issue の変更を1つの PR diff に混在させない。
+高競合 issue は同じ並列 group に入れず直列化する。高競合と判定したすべての組み合わせで、先行 issue の PR が merge され、その merge commit が default branch から到達可能になり、先行 issue が close されるまで後続を blocked / waiting とする。未 merge の先行 branch を後続 branch の base にして複数 issue の変更を1つの PR diff に混在させない。
 
 ### 5. 起動計画の作成
 
@@ -178,7 +178,7 @@ App の top-level Worktree chat 作成と Handoff は App 所有であり、skil
 1. indegree 0 かつ競合 barrier のない ready issue から、実効同時実行数まで起動する。
 2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から新しい worktree を作る。`USER_EXPLICIT_ISSUE=false` で close keyword が無い PR の merge 後も issue が open なら、明示的な issue close 待ちとして報告する。merged PR が無い close は自動的に barrier を解除しない。
 3. worker が失敗または停止した場合、その worker に依存する後続だけを blocked とする。依存しない worker は継続し、空いた slot へ別の ready issue を入れる。
-4. 高競合の直列 barrier も、必要な先行変更が default branch に入ったことを確認してから解除する。
+4. 高競合の直列 barrier も依存 edge と同じ条件で扱い、先行 PR の merge commit が default branch から到達可能かつ先行 issue が `CLOSED` になったことを確認してから解除する。
 5. approval / sandbox / auth エラーは自動的に権限を拡大して再試行せず、worker と後続を blocked にして具体的な不足を記録する。
 
 ### 8. 結果の集約
