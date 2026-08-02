@@ -26,6 +26,7 @@ An Agent Skills bundle that treats each GitHub issue as the canonical "rich plan
 - [🛠️ Dependencies](#-dependencies)
 - [🧩 Skills](#-skills)
 - [🌳 Worktree isolation](#-worktree-isolation)
+- [🚦 Issue dispatch](#-issue-dispatch)
 - [🔁 Workflow](#-workflow)
 - [💡 Philosophy](#-philosophy)
 - [🆚 Comparison with related frameworks](#-comparison-with-related-frameworks)
@@ -59,7 +60,7 @@ The install location depends on `--agent` and `--scope`; for Claude Code at user
 ### via `npx skills` (Claude Code, Codex CLI, Cursor, Gemini, …)
 
 ```bash
-# Install all eight skills (always installs HEAD — version pinning not yet supported)
+# Install all nine skills (always installs HEAD — version pinning not yet supported)
 npx skills add hirokisakabe/issuekit
 
 # Or install a specific skill only
@@ -87,7 +88,7 @@ issuekit assumes the following tools are available on the host:
 
 ## 🧩 Skills
 
-issuekit ships eight skills under `skills/`:
+issuekit ships nine skills under `skills/`:
 
 | Skill                | Role        | Description                                                                                                                                            |
 | -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -95,12 +96,13 @@ issuekit ships eight skills under `skills/`:
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
 | `worktree-start`     | Entry point | **Claude Code interactive sessions only.** Switch via `EnterWorktree`; reuse an existing linked worktree; route a Ready issue to `issue-implement` (PR), `issue-investigate` (issue comment), or `issue-refine` (ambiguous). |
+| `issue-dispatch`     | Orchestrator| Resolve one or more implementation requests, preflight dependencies / conflicts / runtime permissions, then run one worktree-isolated `issue-implement` worker per issue and aggregate PR / CI results. |
 | `issue-implement`    | Orchestrator| Guard for PR-shaped work, then drive status check → mandatory isolation preflight → implementation / commits → acceptance check → cross-review → PR → CI. The full cycle currently requires Codex CLI or Claude Code because of `cross-review`. |
 | `issue-investigate`  | Orchestrator| Investigate, design, or run a technical spike without durable repo changes; post a structured result comment, run acceptance checks, then close the issue on success. |
 | `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` and checks repo state or issue comments, reporting each item as `✓ / ✗ / ?`. Called by both orchestrators before completion. |
 | `cross-review`       | Verifier    | Start an independent reviewer session with the current runtime's CLI and get a second-opinion code review before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
 
-`issue-implement` and `issue-investigate` are the two orchestrators. PR-shaped work goes through implementation, review, and CI; comment-shaped investigation work records its result on the issue and closes it without a commit or PR. `worktree-start` is the only Claude Code-specific entry point, owns only the in-session `EnterWorktree` transition, and routes a Ready issue by its acceptance criteria and out-of-scope section: PR → `issue-implement`, issue comment → `issue-investigate`, ambiguous → `issue-refine`. Codex App managed worktrees and Handoff remain App-owned, while Codex CLI users create ordinary git worktrees outside the running agent session.
+`issue-dispatch`, `issue-implement`, and `issue-investigate` are the three orchestrators. `issue-dispatch` owns cross-issue scheduling and isolation but delegates every issue's implementation cycle to `issue-implement`; PR-shaped work then goes through implementation, review, and CI. Comment-shaped investigation work records its result on the issue and closes it without a commit or PR. `worktree-start` is the only Claude Code-specific entry point, owns only the in-session `EnterWorktree` transition, and routes a Ready issue by its acceptance criteria and out-of-scope section: PR → `issue-implement`, issue comment → `issue-investigate`, ambiguous → `issue-refine`. Codex App managed worktrees and Handoff remain App-owned.
 
 `Status: Draft` is reserved for issues whose acceptance criteria are not yet certain. Draft issues include a `## Ready にするための未決事項` checklist containing the concrete decisions needed to finalize those criteria; implementation-plan choices alone do not make an issue Draft.
 
@@ -110,11 +112,11 @@ issuekit ships eight skills under `skills/`:
 
 Before `issue-implement` writes files or commits, it classifies the current location as a linked worktree, a non-default feature branch, or the repository's default branch. An existing linked worktree dedicated to the current issue/task is reused without creating another one; a linked worktree assigned to another task, or with unverifiable assignment, is not reused. A single implementation on an existing feature branch is also preserved. A write-capable parallel worker is evaluated first and is stricter: **one worker must have one dedicated worktree**. If exclusive assignment cannot be established from runtime/session context, the worker stops instead of assuming a linked worktree is safe.
 
-[Codex subagent workflows](https://learn.chatgpt.com/docs/agent-configuration/subagents) are available in the CLI, IDE extension, and App, but orchestration does not itself isolate file writes. Keep parallel exploration and review read-only where possible; if multiple workers write, assign each worker a separate worktree.
+[Codex subagent workflows](https://learn.chatgpt.com/docs/agent-configuration/subagents) are available in the CLI, IDE extension, and App, but the current documented subagent contract does not assign a dedicated cwd / worktree to each native subagent. Keep parallel exploration and review read-only where possible. `issue-dispatch` uses ordinary worktrees plus `codex exec -C` for Codex CLI write workers and refuses same-checkout parallel writes when the runtime cannot guarantee isolation.
 
 | Runtime | Isolation contract on the default branch |
 | --- | --- |
-| Codex CLI | Stop before implementation. Create an ordinary worktree with `git worktree add`, then start a new session with [`codex -C <path>`](https://learn.chatgpt.com/docs/codex/cli/reference) and rerun `issue-implement`. The running CLI session is not assumed to migrate cwd safely. |
+| Codex CLI | A single `issue-implement` request on the default branch hands the issue to `issue-dispatch`. The parent creates an ordinary worktree and starts one non-interactive worker with [`codex exec -C <path>`](https://learn.chatgpt.com/docs/developer-commands?surface=cli), without migrating its own cwd. |
 | Codex App | Start the chat in an App-managed **Worktree**, or use **Handoff** from Local to Worktree. These are App-owned features; issuekit does not create or control managed worktrees. See [Codex Worktrees](https://learn.chatgpt.com/docs/environments/git-worktrees). |
 | Claude Code CLI | Start isolated with `claude --worktree <name>`, or let `worktree-start` use `EnterWorktree` from an interactive session. See [Claude Code worktrees](https://code.claude.com/docs/en/worktrees). |
 | Claude Code subagent | Set `isolation: worktree` in the agent frontmatter or spawn configuration. See [Claude Code subagents](https://code.claude.com/docs/en/sub-agents). |
@@ -125,20 +127,41 @@ A worktree is a fresh checkout. Install dependencies and initialize the environm
 
 ---
 
+## 🚦 Issue dispatch
+
+`issue-dispatch` accepts a single issue URL / number, an explicit list, or a bounded selection request such as “up to five Ready refactoring issues.” It refreshes every candidate's body and comments, excludes Draft or contradictory issues, resolves `Depends on:` as a DAG, reads parent-issue context, and estimates overlapping paths before any worker starts. Its launch plan records the issue, title, dependencies, expected paths, parallel group, and dedicated worktree / branch.
+
+Multiple-issue runs default to three concurrent workers. The effective limit is the minimum of that default (or the user's explicit limit), the runtime's worker limit, and the number of independent Ready issues. A failed worker blocks only its dependents; unrelated workers continue. Dependency and high-conflict serial barriers wait for the earlier issue to close and land on the default branch, because a successful but unmerged PR is not a safe base for a separate issue PR.
+
+Runtime behavior is deliberately asymmetric:
+
+- **Codex CLI:** the parent creates one ordinary worktree per issue and launches `codex exec -C <path>` with `workspace-write`, non-interactive approval behavior, and write access limited to that worktree plus the repository's shared git metadata. Each worker runs `issue-implement <N>` through PR and CI.
+- **Claude Code:** use a subagent with `isolation: worktree`, Agent view's worktree-isolated background session, or an equivalent official isolation primitive. Do not use non-isolated Agent teams for write workers.
+- **Codex App:** top-level Worktree chats and Handoff are App-owned. When the current surface cannot create one isolated chat per issue, the skill returns the worktree plan and per-issue launch prompts instead of automating the UI.
+
+`issue-pick` remains read-only and never auto-chains into dispatch. Dispatch starts only from an explicit implementation request.
+
+---
+
 ## 🔁 Workflow
 
-The skills compose into two issue-driven completion paths. Entry points feed a Ready issue into the matching orchestrator; ambiguous completion shapes return to refinement.
+The skills compose into PR and issue-comment completion paths. A single Codex CLI implementation invoked on the default branch routes through `issue-dispatch`; explicit multi-issue requests enter the dispatcher directly.
 
 ```mermaid
 flowchart LR
     A[issue-create] --> I[(GitHub issue<br/>Status: Ready)]
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
+    M[one or more implementation issues] --> D[issue-dispatch<br/>DAG + conflict scheduling]
     I --> W[worktree-start<br/>completion-shape routing]
     W -->|PR| PF[issue-implement<br/>isolation preflight]
     W -->|issue comment| INV[issue-investigate<br/>investigation + result comment]
     W -->|ambiguous| R
     PF -->|Claude Code default branch| WT[worktree-start<br/>EnterWorktree]
+    PF -->|Codex CLI default branch, one issue| D
+    D --> WK[dedicated worktree<br/>issue-implement worker]
+    WK --> PFW[linked-worktree preflight]
+    PFW --> IMPL
     WT --> IMPL[implementation + commits]
     PF -->|existing worktree / feature branch| IMPL
     PF -. unsafe runtime/location: stop .-> STOP[restart in isolated worktree]
@@ -154,7 +177,7 @@ flowchart LR
     classDef out   fill:#f3f4f6,stroke:#6b7280,color:#1f2937
 
     class A,R,P,W entry
-    class PF,IMPL,INV orch
+    class D,PF,PFW,WK,IMPL,INV orch
     class CR,AC,AC2 ver
     class I,C,IC,STOP out
 ```

@@ -1,7 +1,7 @@
 ---
 name: worktree-start
 description: "Claude Code 専用。起動済みの対話 session から、タスク説明または issue URL / 番号で命名した git worktree へ `EnterWorktree` で切り替える。既存 linked worktree では作成だけを no-op にする。Ready issue は完了形を判定し、PR なら `issue-implement`、コメント完結型なら `issue-investigate` へ連鎖し、要確認なら `issue-refine` を案内する。"
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Worktree Start Skill
@@ -35,7 +35,7 @@ Claude Code の `EnterWorktree` ツールを使い、起動済み対話 session 
 | Claude Code subagent | frontmatter の `isolation: worktree`、または spawn 時の `isolation: "worktree"` | 作成しない。subagent runtime に委ねる。 |
 | Claude Code Agent view | background session が書き込み前に自動で専用 worktree へ移る | 作成しない。移行後の linked worktree では no-op。 |
 | Claude Desktop Code session | 新規 session ごとに自動 worktree | 作成しない。Desktop runtime に委ねる。 |
-| Codex CLI | `git worktree add` 後に `codex -C <path>` | fallback を実行しない。`issue-implement` が default branch 上で停止して再開手順を返す。 |
+| Codex CLI | `issue-dispatch` が通常の `git worktree` を作成し、`codex exec -C <path>` で worker を起動 | 本 skill は fallback を実行しない。単一 issue の `issue-implement` は default branch 上で `issuekit:issue-dispatch`（APM plain-skill mode では `issue-dispatch`）へ引き継ぐ。 |
 | Codex App | App の managed worktree / Handoff | App 所有。skill から作成・操作しない。 |
 
 Claude Code の現在の worktree 仕様は [公式 worktree ドキュメント](https://code.claude.com/docs/en/worktrees)、Agent view は [公式 Agent view ドキュメント](https://code.claude.com/docs/en/agent-view) を参照する。
