@@ -179,7 +179,7 @@ EOF
 ```
 
 - **PR description は日本語**で記載する（CLAUDE.md の常時適用ルール）。
-- ユーザーから明示的に issue 番号を指定された場合のみ、description の先頭に `close #<issue 番号>` を記載する。本 skill のように issue 番号を起点に呼ばれた場合は、その issue 番号を「明示指定」とみなして `close #<issue 番号>` を入れてよい。
+- ユーザーから明示的に issue 番号を指定された場合のみ、description の先頭に `close #<issue 番号>` を記載する。本 skill をユーザーが issue 番号 / URL 起点で直接呼んだ場合は「明示指定」とみなす。`issue-dispatch` worker では prompt の `USER_EXPLICIT_ISSUE=true|false` を優先し、dispatcher が機械選定して `issue-implement <N>` と引き継いだだけなら明示指定とみなさない。
 - description には目的、影響パッケージパス、ローカル検証手順を含める。
 
 ### 10. CI 確認
