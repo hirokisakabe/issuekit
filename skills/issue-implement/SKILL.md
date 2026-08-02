@@ -116,7 +116,7 @@ fi
 default branch 上の runtime 別分岐:
 
 - **Claude Code 対話 session**: `EnterWorktree` が利用できる場合だけ `issuekit:worktree-start` (APM plain-skill mode では `worktree-start`) を呼ぶ。issue title から作った `<title-slug>-<issue 番号>` を **タスク説明モード**で渡し、切り替え後に `GIT_COMMON_DIR != GIT_DIR` を再確認してから続行する。`EnterWorktree` が無い旧版や、切り替えに失敗した場合は停止し、`claude --worktree <title-slug>-<issue 番号>` で新しい session を開始して `issue-implement <issue 番号>` を再実行するよう案内する。
-- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件を `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher が衝突しない通常の git worktree / branch を作成し、`codex exec -C <worktree-path>` で `issue-implement <issue番号>` worker を1つだけ起動して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。
+- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、元のユーザーが issue 番号 / URL を明示したかを `USER_EXPLICIT_ISSUE=true|false` として `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を入力形式より優先する。dispatcher が衝突しない通常の git worktree / branch を作成し、`codex exec -C <worktree-path>` で `issue-implement <issue番号>` worker を1つだけ起動して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。
 
 - **Codex App**: App の **Worktree** で開始済み、または **Handoff** で managed worktree へ移動済みなら続行する。Local の default branch 上なら実装前に停止し、App UI で Worktree chat を開始するか Handoff してから再実行するよう案内する。managed worktree / Handoff は runtime 所有であり、skill 自身は作成・操作しない。
 - **Claude Code Agent view / Desktop**: Agent view の background session と Desktop の新規 Code session は runtime が自動隔離する。実際に linked worktree へ移ったことを確認して続行する。移行前の main checkout では書き込みを始めない。
