@@ -107,7 +107,7 @@ gh issue view <dependency-N> --json state,title --jq '{state,title}'
 ```
 
 - 依存先が候補集合外で `OPEN` なら対象を起動可能集合から除外し、blocked として報告する。
-- 依存先も候補に含まれる場合は DAG edge として残す。後続 issue は依存先 worker の PR / CI 完了だけでは起動しない。worker が返した PR URL を直接追跡し、`gh pr view <PR> --json mergedAt,mergeCommit` で merge 済みと merge commit を確認する。default branch の fetch 後に `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` が成功し、依存 issue も `CLOSED` になった場合だけ起動可能になる。`ISSUE_CLOSE_INTENT=false` のため close keyword を付けなかった PR は、merge 後も issue が open ならユーザーによる明示的な close が必要な waiting 状態として計画・結果に記載する。手動 close されても対応 PR の merge を確認できない場合は、依存が不要になった根拠を確認できない限り blocked のままにする。
+- 依存先も候補に含まれる場合は DAG edge として残す。後続 issue は依存先 worker の PR / CI 完了だけでは起動しない。worker が返した PR URL を直接追跡し、`gh pr view <PR> --json mergedAt,mergeCommit` で merge 済みと merge commit を確認する。default branch の fetch 後に `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` が成功し、依存 issue も `CLOSED` になった場合だけ起動可能になる。`ISSUE_CLOSE_INTENT=false` の PR はその issue 全体を完了しないため、merge 後も issue が open なら、後続の完全実装や別 PR などによって issue が正当に完了して `CLOSED` になるまで waiting 状態として計画・結果に記載する。対応 issue のない作業には issue close barrier を適用しない。手動 close されても対応 PR の merge を確認できない場合は、依存が不要になった根拠を確認できない限り blocked のままにする。
 - cycle を検出した場合は該当 node をすべて blocked とし、worker を起動しない。
 
 本文の `親: #N` と GitHub sub-issue parent API の和集合を取り、親があれば本文・コメントを取得する。
@@ -191,7 +191,7 @@ App の top-level Worktree chat 作成と Handoff は App 所有であり、skil
 親 session は全 worker が完了または停止するまで監視する。
 
 1. indegree 0 かつ競合 barrier のない ready issue から、実効同時実行数まで起動する。
-2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から新しい worktree を作る。`ISSUE_CLOSE_INTENT=false` で close keyword が無い PR の merge 後も issue が open なら、明示的な issue close 待ちとして報告する。merged PR が無い close は自動的に barrier を解除しない。
+2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から新しい worktree を作る。`ISSUE_CLOSE_INTENT=false` の PR の merge 後も issue が open なら、その PR では issue が未完了であり、後続の完全実装や別 PR などによる正当な完了待ちとして報告する。対応 issue のない作業には issue close barrier を適用しない。merged PR が無い close は自動的に barrier を解除しない。
 3. worker が失敗または停止した場合、その worker に依存する後続だけを blocked とする。依存しない worker は継続し、空いた slot へ別の ready issue を入れる。
 4. 高競合の直列 barrier も依存 edge と同じ条件で扱い、先行 PR の merge commit が default branch から到達可能かつ先行 issue が `CLOSED` になったことを確認してから解除する。
 5. approval / sandbox / auth エラーは自動的に権限を拡大して再試行せず、worker と後続を blocked にして具体的な不足を記録する。
