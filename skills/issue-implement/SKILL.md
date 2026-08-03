@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、runtime と worktree の実装隔離を preflight で保証してから、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Issue Implement Skill
@@ -31,6 +31,16 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
   - issue コメントだけを成果物とする調査・設計・技術検証。`issue-investigate` の対象とする。
 
 ## 実行手順
+
+### close intent の共通判定規則
+
+PR description に `close #N` を付けるかは、`issue-dispatch` と同じ次の規則で判定する。
+
+- `ISSUE_CLOSE_INTENT=true`: 実装対象に対応する GitHub issue があり、その issue 全体を完了させる PR を作る。番号 / URL の直接指定、提示済み候補への参照表現、広い選定条件からの dispatcher による機械選定のいずれも含む。
+- `ISSUE_CLOSE_INTENT=false`: 対応する issue がない、または依頼が部分実装・親 epic の一部・単なる関連付けであり、その PR だけでは issue 全体を完了させない。
+- PR 単体で issue 全体を完了するか曖昧なら `true` と推測せず、PR 作成前にユーザーへ確認する。
+
+直接起動では取得済みの issue 契約と依頼された実装範囲から intent を判定し、`ISSUE_CLOSE_INTENT_REASON` に issue と実装範囲の対応関係を1行で記録する。dispatcher worker では prompt の `ISSUE_CLOSE_INTENT` と `ISSUE_CLOSE_INTENT_REASON` を必須入力としてそのまま使い、worker prompt 内の issue 番号から再判定しない。flag と reason が欠落・矛盾している場合は PR を作成せず dispatcher へ blocker を返す。
 
 ### 1. issue の取得と Status・完了形の確認
 
@@ -116,7 +126,7 @@ fi
 default branch 上の runtime 別分岐:
 
 - **Claude Code 対話 session**: `EnterWorktree` が利用できる場合だけ `issuekit:worktree-start` (APM plain-skill mode では `worktree-start`) を呼ぶ。issue title から作った `<title-slug>-<issue 番号>` を **タスク説明モード**で渡し、切り替え後に `GIT_COMMON_DIR != GIT_DIR` を再確認してから続行する。`EnterWorktree` が無い旧版や、切り替えに失敗した場合は停止し、`claude --worktree <title-slug>-<issue 番号>` で新しい session を開始して `issue-implement <issue 番号>` を再実行するよう案内する。
-- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、元のユーザーが issue 番号 / URL を明示したかを `USER_EXPLICIT_ISSUE=true|false` として `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を入力形式より優先する。dispatcher が衝突しない通常の git worktree / branch を作成し、`codex exec -C <worktree-path>` で `issue-implement <issue番号>` worker を1つだけ起動して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。
+- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、上記の共通規則で確定した `ISSUE_CLOSE_INTENT=true|false` および `ISSUE_CLOSE_INTENT_REASON=<根拠>` を `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を機械的な issue 番号の形式から再判定しない。dispatcher が衝突しない通常の git worktree / branch を作成し、`codex exec -C <worktree-path>` で `issue-implement <issue番号>` worker を1つだけ起動して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。
 
 - **Codex App**: App の **Worktree** で開始済み、または **Handoff** で managed worktree へ移動済みなら続行する。Local の default branch 上なら実装前に停止し、App UI で Worktree chat を開始するか Handoff してから再実行するよう案内する。managed worktree / Handoff は runtime 所有であり、skill 自身は作成・操作しない。
 - **Claude Code Agent view / Desktop**: Agent view の background session と Desktop の新規 Code session は runtime が自動隔離する。実際に linked worktree へ移ったことを確認して続行する。移行前の main checkout では書き込みを始めない。
@@ -179,7 +189,7 @@ EOF
 ```
 
 - **PR description は日本語**で記載する（CLAUDE.md の常時適用ルール）。
-- ユーザーから明示的に issue 番号を指定された場合のみ、description の先頭に `close #<issue 番号>` を記載する。本 skill をユーザーが issue 番号 / URL 起点で直接呼んだ場合は「明示指定」とみなす。`issue-dispatch` worker では prompt の `USER_EXPLICIT_ISSUE=true|false` を優先し、dispatcher が機械選定して `issue-implement <N>` と引き継いだだけなら明示指定とみなさない。
+- description の先頭に `close #<issue 番号>` を記載するのは `ISSUE_CLOSE_INTENT=true` の場合だけとする。対応 issue の完全実装は、直接の番号 / URL 指定、提示済み候補への参照、dispatcher の機械選定のいずれでも `true` とする。対応 issue がない場合や、部分実装・epic の一部・関連付けだけの PR は `false` とする。dispatcher worker は prompt の flag と reason をそのまま使い、機械的に渡された `issue-implement <N>` だけを close intent の根拠にしない。
 - description には目的、影響パッケージパス、ローカル検証手順を含める。
 
 ### 10. CI 確認
@@ -204,7 +214,7 @@ PR URL と CI 結果（成功 / 修正後成功）をユーザーに返す。
 - 書き込みを伴う並列 worker が同じ worktree を共有すること。並列 worker は branch 名にかかわらず 1 worker = 1 worktree とする。
 - 単独実装で、すでに default branch 以外の feature branch にいるユーザーへの worktree 強制切り替え。step 4 の分類で既存 branch を尊重する。
 - step 4 で `worktree-start` を呼ぶ際に issue 番号を渡すこと。issue 番号を渡すと `worktree-start` 側の Status 判定経路に入り `issue-implement` への再帰連鎖が起きるため、タスク説明モードで slug (`<title>-<issue 番号>`) のみを渡す。
-- issue 本文や PR への `close` キーワードの自動付与（ユーザー明示指定時のみ）。
+- issue 本文や PR への `close` キーワードの無条件な自動付与。`ISSUE_CLOSE_INTENT=true` の完全実装 PR にだけ付ける。
 - 受け入れ条件を満たさない状態での PR 作成。
 - コメント完結型または完了形が要確認な issue の実装・commit・PR 化。step 1 で停止し、`issue-investigate` または `issue-refine` を案内する。
 - 実行中 agent runtime に対応する CLI が未導入な状態での cross-review 省略（該当する `issuekit:cross-review` / `cross-review` skill の失敗時対応に従い、明確に失敗させる）。
