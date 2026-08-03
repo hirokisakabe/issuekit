@@ -36,11 +36,11 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 
 PR description に `close #N` を付けるかは、`issue-dispatch` と同じ次の規則で判定する。
 
-- `ISSUE_CLOSE_INTENT=true`: ユーザーが会話内で対象 issue を一意に選択し、その issue 全体を完了させる実装を依頼した。番号 / URL の直接指定に加え、agent が提示した番号付き候補を指す「それら」「選んだもの」なども、参照先が一意なら含む。
-- `ISSUE_CLOSE_INTENT=false`: 選定条件から dispatcher がユーザー確認なしに機械選定した、対象が一意でない、または依頼が部分実装・親 epic の一部・単なる関連付けであり、その PR だけで issue 全体を完了させない。
-- 対象または完了意図が曖昧なら `true` と推測せず、PR 作成前にユーザーへ確認する。
+- `ISSUE_CLOSE_INTENT=true`: 実装対象に対応する GitHub issue があり、その issue 全体を完了させる PR を作る。番号 / URL の直接指定、提示済み候補への参照表現、広い選定条件からの dispatcher による機械選定のいずれも含む。
+- `ISSUE_CLOSE_INTENT=false`: 対応する issue がない、または依頼が部分実装・親 epic の一部・単なる関連付けであり、その PR だけでは issue 全体を完了させない。
+- PR 単体で issue 全体を完了するか曖昧なら `true` と推測せず、PR 作成前にユーザーへ確認する。
 
-直接起動では会話全体から intent を判定し、`ISSUE_CLOSE_INTENT_REASON` に根拠を1行で記録する。dispatcher worker では prompt の `ISSUE_CLOSE_INTENT` と `ISSUE_CLOSE_INTENT_REASON` を必須入力としてそのまま使い、worker prompt 内の issue 番号から再判定しない。flag と reason が欠落・矛盾している場合は PR を作成せず dispatcher へ blocker を返す。
+直接起動では取得済みの issue 契約と依頼された実装範囲から intent を判定し、`ISSUE_CLOSE_INTENT_REASON` に issue と実装範囲の対応関係を1行で記録する。dispatcher worker では prompt の `ISSUE_CLOSE_INTENT` と `ISSUE_CLOSE_INTENT_REASON` を必須入力としてそのまま使い、worker prompt 内の issue 番号から再判定しない。flag と reason が欠落・矛盾している場合は PR を作成せず dispatcher へ blocker を返す。
 
 ### 1. issue の取得と Status・完了形の確認
 
@@ -189,7 +189,7 @@ EOF
 ```
 
 - **PR description は日本語**で記載する（CLAUDE.md の常時適用ルール）。
-- description の先頭に `close #<issue 番号>` を記載するのは `ISSUE_CLOSE_INTENT=true` の場合だけとする。直接の番号 / URL 指定と、提示済み候補を参照表現で一意に選んだ完全実装依頼は `true`、条件からの機械選定や部分実装・epic の一部・関連付けだけの PR は `false` とする。dispatcher worker は prompt の flag と reason をそのまま使い、機械的に渡された `issue-implement <N>` を close intent の根拠にしない。
+- description の先頭に `close #<issue 番号>` を記載するのは `ISSUE_CLOSE_INTENT=true` の場合だけとする。対応 issue の完全実装は、直接の番号 / URL 指定、提示済み候補への参照、dispatcher の機械選定のいずれでも `true` とする。対応 issue がない場合や、部分実装・epic の一部・関連付けだけの PR は `false` とする。dispatcher worker は prompt の flag と reason をそのまま使い、機械的に渡された `issue-implement <N>` だけを close intent の根拠にしない。
 - description には目的、影響パッケージパス、ローカル検証手順を含める。
 
 ### 10. CI 確認
