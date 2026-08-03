@@ -1,7 +1,7 @@
 ---
 name: issue-create
 description: "Invoke for any request to create, file, open, or record a new GitHub issue. Trigger on:\n- Direct creation: 「issue 作って」「起票して」「issue 立て(といて)」「issue 化して」「issue 作れる?」\n- Record intent: 「issue に残したい/残しておいてほしい」「issue として残しておきたい」\n- Issue types: bug reports (with repro steps), feature requests, refactoring tasks, doc fixes, investigation / design tasks, code-review findings to track later\n\nDo NOT trigger for viewing, listing, searching, or implementing existing issues."
-version: 1.2.1
+version: 2.2.0
 ---
 
 # Issue Create Skill
