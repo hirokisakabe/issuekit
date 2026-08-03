@@ -128,5 +128,5 @@ The runtime must be determined from the running agent's explicit environment, no
 ## Repository conventions inherited from the user's global CLAUDE.md
 
 - PR descriptions are written in Japanese.
-- `close #<番号>` is added to a PR description **only** when the user explicitly specifies the issue number. A user-direct `issue-implement <番号>` invocation counts as explicit; a dispatcher-generated `issue-implement <番号>` follows the inherited `USER_EXPLICIT_ISSUE=true|false` provenance instead.
+- `close #<番号>` is added to a PR description only when the user uniquely selects the issue in the conversation and requests its complete implementation. This includes direct issue numbers / URLs and unambiguous references to a previously presented numbered selection; machine-selected issues, partial implementations, epic subsets, and relation-only PRs do not close. Dispatcher workers inherit `ISSUE_CLOSE_INTENT=true|false` together with `ISSUE_CLOSE_INTENT_REASON` and never infer intent from the mechanical `issue-implement <番号>` prompt.
 - Browser automation uses `agent-browser --engine lightpanda`.
