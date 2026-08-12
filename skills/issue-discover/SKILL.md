@@ -1,7 +1,7 @@
 ---
 name: issue-discover
 description: "Use when the user wants to inspect the current repository and discover evidence-backed improvement themes that are not already tracked as open GitHub issues. Trigger on requests such as finding new issue ideas, uncovering missing work, or suggesting repo improvements from README, skills, recent changes, TODOs, and inconsistencies. Read-only: proposes at most 3 new candidates and does not create issues, modify the repository, rank them with existing issues, or start implementation. Do NOT use when the user wants to choose among existing issues (use issue-pick) or already knows what issue to create (use issue-create)."
-version: 1.0.0
+version: 1.3.0
 ---
 
 # Issue Discover Skill
