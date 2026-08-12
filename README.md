@@ -60,7 +60,7 @@ The install location depends on `--agent` and `--scope`; for Claude Code at user
 ### via `npx skills` (Claude Code, Codex CLI, Cursor, Gemini, …)
 
 ```bash
-# Install all nine skills (always installs HEAD — version pinning not yet supported)
+# Install all ten skills (always installs HEAD — version pinning not yet supported)
 npx skills add hirokisakabe/issuekit
 
 # Or install a specific skill only
@@ -88,19 +88,22 @@ issuekit assumes the following tools are available on the host:
 
 ## 🧩 Skills
 
-issuekit ships nine skills under `skills/`:
+issuekit ships ten skills under `skills/`:
 
 | Skill                | Role        | Description                                                                                                                                            |
 | -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `issue-create`       | Entry point | Open a new GitHub issue using issuekit's standard format (`Status: Ready` / `Status: Draft` header, intent, plan, acceptance criteria, out-of-scope).  |
 | `issue-refine`       | Entry point | Re-shape an existing issue (title-only or partially formatted) into the standard format.                                                               |
 | `issue-pick`         | Entry point | Read-only triage: from a set of open issues, suggest the next one to take on, with rationale.                                                          |
+| `issue-discover`     | Entry point | Read-only discovery: inspect repository evidence, exclude themes already covered by open issues, and suggest up to three new issue candidates.         |
 | `worktree-start`     | Entry point | **Claude Code interactive sessions only.** Switch via `EnterWorktree`; reuse an existing linked worktree; route a Ready issue to `issue-implement` (PR), `issue-investigate` (issue comment), or `issue-refine` (ambiguous). |
 | `issue-dispatch`     | Orchestrator| Resolve one or more implementation requests, preflight dependencies / conflicts / runtime permissions, then run one worktree-isolated `issue-implement` worker per issue and aggregate PR / CI results. |
 | `issue-implement`    | Orchestrator| Guard for PR-shaped work, then drive status check → mandatory isolation preflight → implementation / commits → acceptance check → cross-review → PR → CI. The full cycle currently requires Codex CLI or Claude Code because of `cross-review`. |
 | `issue-investigate`  | Orchestrator| Investigate, design, or run a technical spike without durable repo changes; post a structured result comment, run acceptance checks, then close the issue on success. |
 | `acceptance-check`   | Verifier    | Read-only verifier that extracts `## 受け入れ条件` and checks repo state or issue comments, reporting each item as `✓ / ✗ / ?`. Called by both orchestrators before completion. |
 | `cross-review`       | Verifier    | Start an independent reviewer session with the current runtime's CLI and get a second-opinion code review before PR creation. Called by `issue-implement` after `acceptance-check` passes; review fixes land as additional commits. |
+
+`issue-discover` and `issue-pick` are separate read-only advisory entry points: discovery finds evidence-backed themes that are not yet tracked, while picking compares only registered open issues. A discovered theme reaches `issue-create` only after the user explicitly selects it; neither skill creates or starts work automatically.
 
 `issue-dispatch`, `issue-implement`, and `issue-investigate` are the three orchestrators. `issue-dispatch` owns cross-issue scheduling and isolation but delegates every issue's implementation cycle to `issue-implement`; PR-shaped work then goes through implementation, review, and CI. Comment-shaped investigation work records its result on the issue and closes it without a commit or PR. `worktree-start` is the only Claude Code-specific entry point, owns only the in-session `EnterWorktree` transition, and routes a Ready issue by its acceptance criteria and out-of-scope section: PR → `issue-implement`, issue comment → `issue-investigate`, ambiguous → `issue-refine`. Codex App managed worktrees and Handoff remain App-owned.
 
@@ -149,6 +152,7 @@ The skills compose into PR and issue-comment completion paths. A single Codex CL
 
 ```mermaid
 flowchart LR
+    DS[issue-discover] -. user selects candidate .-> A
     A[issue-create] --> I[(GitHub issue<br/>Status: Ready)]
     R[issue-refine] --> I
     P[issue-pick] -. suggests .-> I
@@ -176,7 +180,7 @@ flowchart LR
     classDef ver   fill:#ecfdf5,stroke:#10b981,color:#065f46
     classDef out   fill:#f3f4f6,stroke:#6b7280,color:#1f2937
 
-    class A,R,P,W entry
+    class DS,A,R,P,W entry
     class D,PF,PFW,WK,IMPL,INV orch
     class CR,AC,AC2 ver
     class I,C,IC,STOP out

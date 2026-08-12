@@ -6,7 +6,7 @@ This file provides guidance to coding agents (Claude Code, Codex, etc.) when wor
 
 ## What this repository is
 
-issuekit is an **Agent Skills bundle**, not an application. It contains 9 skills as `skills/<name>/SKILL.md` markdown files, distributed via `gh skill install hirokisakabe/issuekit` (version-pinnable via GitHub Releases) and `npx skills add hirokisakabe/issuekit` (always HEAD). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
+issuekit is an **Agent Skills bundle**, not an application. It contains 10 skills as `skills/<name>/SKILL.md` markdown files, distributed via `gh skill install hirokisakabe/issuekit` (version-pinnable via GitHub Releases) and `npx skills add hirokisakabe/issuekit` (always HEAD). There is no build, test, or lint toolchain — the artifacts are the SKILL.md files themselves.
 
 The bundle codifies an **issue-driven development** workflow where the GitHub issue body is the rich plan (with `Status: Ready/Draft`, `## 受け入れ条件`, `## スコープ外`, `Depends on:`, `親: #N`), investigation results default to issue comments, and the repository contains only durable artifacts. See `README.md` for the philosophy and the comparison vs. Spec Kit / cc-spex / superpowers.
 
@@ -18,6 +18,12 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 - `issue-implement` → `issue-dispatch` only for a single PR-shaped Ready issue invoked from Codex CLI on the default branch. The dispatcher creates one ordinary worktree and launches `codex exec -C <path>`; the linked-worktree worker re-enters `issue-implement` and continues without dispatching again.
 - Direct multi-issue implementation requests enter `issue-dispatch`. `issue-pick` remains read-only and does not chain into it without a new explicit implementation request from the user.
 
+`issue-discover` is the read-only entry point for finding new, untracked improvement themes from repository evidence:
+
+- `issue-discover` inspects README, `SKILL.md`, recent changes, TODO / FIXME, and documentation inconsistencies, then checks open issue titles, bodies, and relevant comments before proposing at most three candidates.
+- `issue-discover` does not rank candidates alongside existing issues, mutate GitHub or repo state, or chain automatically. After the user selects a candidate, plugin mode directs them to `issuekit:issue-create`; APM plain-skill mode directs them to bare `issue-create`.
+- `issue-pick` remains responsible only for selecting among registered open issues. When no registered candidate fits and the user wants a new theme, it may suggest `issuekit:issue-discover` / `issue-discover` without invoking it.
+
 `issue-implement` is the orchestrator of the implementation cycle and **calls** the other skills:
 
 - `issue-implement` → `acceptance-check` (verifies `## 受け入れ条件` against the final repo state after implementation+commits, **before** `cross-review` so an acceptance ✗ does not waste a cross-review pass)
@@ -26,7 +32,7 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 - `issue-implement` → `issue-dispatch` (**conditional**, inside the mandatory isolation preflight): fires only for Codex CLI on the default branch and passes exactly the current issue. The parent session stays in place while the dispatcher owns the worker worktree and waits through PR / CI.
 - `issue-implement` guards its direct-entry path with the same completion-shape rule: only PR-shaped Ready issues continue; comment-shaped issues stop with an `issue-investigate` recommendation, and ambiguous issues stop with an `issue-refine` recommendation.
 - `worktree-start` → `issue-implement` or `issue-investigate` (**only** when input is an issue URL/number with `Status: Ready` and a clear completion shape; PR-shaped issues route to `issue-implement`, comment-shaped issues route to `issue-investigate`, and ambiguous issues stop after the worktree switch with an `issue-refine` recommendation)
-- `issue-create` / `issue-refine` / `issue-pick` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point and does not chain (see its "やらないこと" — handing off to `issue-implement` or `issue-investigate` is via user only).
+- `issue-create` / `issue-refine` / `issue-pick` / `issue-discover` are entry points; they do not chain into other skills. `issue-pick` is a triage entry point for registered issues, while `issue-discover` finds untracked themes from repo evidence. Their handoffs to `issue-implement`, `issue-investigate`, or `issue-create` are via the user only.
 
 `issue-investigate` is the separate orchestrator for comment-complete investigation, design, and technical-validation issues. It posts a structured result comment, calls `acceptance-check`, and closes the issue only after the acceptance check succeeds. It does not commit, open a PR, or call `cross-review`. `issue-pick` suggests it via the user, while `worktree-start` may chain to it when a Ready issue's acceptance criteria require only an issue comment and no durable repo change.
 
@@ -41,7 +47,7 @@ When editing one skill, check whether others reference it. Cross-references appe
 - Plugin mode: `issuekit:<skill-name>` (e.g. `issuekit:cross-review`)
 - APM plain-skill mode: bare `<skill-name>` (e.g. `cross-review`)
 
-Both forms must stay in sync — `issue-dispatch`, `issue-implement`, `issue-investigate`, `issue-pick`, and `worktree-start` document each form explicitly.
+Both forms must stay in sync — `issue-dispatch`, `issue-implement`, `issue-investigate`, `issue-pick`, `issue-discover`, and `worktree-start` document each form explicitly.
 
 ## Hardcoded Japanese keywords
 

@@ -1,7 +1,7 @@
 ---
 name: issue-pick
-description: "Use when the user has NOT yet decided which issue to work on and needs help choosing. This is the pre-decision advisory phase: the user is weighing multiple open issues and wants structured guidance — not implementation. Key triggers: asking which issue to prioritize or tackle next, identifying which issues are blocked vs. ready to start independently, selecting issues that fit limited capacity (small/high-impact), or finding independent issues for parallel worktree sessions. The user's state is \"I have several candidates and don't know where to start.\" Provides ranked recommendation (1 pick + 1-2 alternates) across impact/dependencies/size/urgency — read-only, no state changes."
-version: 1.2.0
+description: "Use when the user has NOT yet decided which registered issue to work on and needs help choosing. This is the pre-decision advisory phase: the user is weighing multiple open issues and wants structured guidance — not implementation. Key triggers: asking which issue to prioritize or tackle next, identifying which issues are blocked vs. ready to start independently, selecting issues that fit limited capacity (small/high-impact), or finding independent issues for parallel worktree sessions. The user's state is \"I have several candidates and don't know where to start.\" Provides ranked recommendation (1 pick + 1-2 alternates) across impact/dependencies/size/urgency — read-only, no state changes. Do NOT use to discover untracked improvement themes from repository evidence; use issue-discover for that."
+version: 1.3.0
 ---
 
 # Issue Pick Skill
@@ -26,6 +26,8 @@ version: 1.2.0
 
 - 引数なし: デフォルトで open + `Status: Ready` の issue のみを対象とする。
 - `--include-draft`: Draft の issue も対象に含める。
+
+登録済み issue ではなく、repo を調査して未起票の改善テーマを探したい場合は本 skill の対象外であり、plugin mode では `issuekit:issue-discover`、APM plain-skill mode では `issue-discover` を案内する。
 
 ## 実行手順
 
@@ -192,7 +194,7 @@ skill は **観点を統一フォーマットで提示するところまで** �
 ## 失敗時の対応
 
 - `gh issue list` が失敗する (認証エラー等) 場合は、その旨を報告して終了する。
-- 対象 issue が 0 件の場合は「対象 issue がない」旨を報告して終了する (`--include-draft` を促す案内をしてよい)。
+- 対象 issue が 0 件の場合は「対象 issue がない」旨を報告して終了する。Draft も選定対象に含めたい場合は `--include-draft`、repo から未起票の改善テーマを探したい場合は plugin mode の `issuekit:issue-discover` / APM plain-skill mode の `issue-discover` を案内してよい。どちらも自動では呼ばない。
 
 ## やらないこと
 
@@ -200,4 +202,5 @@ skill は **観点を統一フォーマットで提示するところまで** �
 - **ranking 全件の出力**: 推奨 1 + 補欠 1〜2 件のみ。優先度の永続化と紛らわしくしないため。
 - **重み付け / スコアリング**: 観点を提示するに留め、数値化はしない。
 - **着手 orchestrator への自動 chain**: `issuekit:issue-implement` / `issuekit:issue-investigate` は出力末尾の hint 行で案内するだけ。APM plain-skill mode では bare skill 名として案内し、skill 内で自動呼び出しはしない。
+- **未起票候補の発見**: repo から新しい改善テーマを探す責務は `issuekit:issue-discover` / `issue-discover` に委ね、本 skill の ranking に混ぜない。
 - **assigned filter**: 個人リポジトリでは無意味のためサポートしない。
