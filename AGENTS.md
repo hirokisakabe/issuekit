@@ -63,7 +63,7 @@ These strings are not localizable in the current implementation. Forking is requ
 
 ## Status semantics (single source of truth: `issue-create`)
 
-`Status` is judged on **acceptance-criteria certainty only**, not implementation-plan certainty. A bug issue with a prioritized list of fix candidates and verifiable acceptance criteria is `Ready`. Acceptance criteria containing 「仮」/「要検討」 or that are too vague to self-verify → `Draft`. Draft issues must include `## Ready にするための未決事項`, listing only the concrete decisions needed to finalize acceptance criteria. `issue-refine`, `issue-dispatch`, `issue-implement`, and `issue-investigate` defer to `issue-create` for this rule — do not duplicate the definition; update `issue-create` and reference it.
+`Status` is judged on **acceptance-criteria certainty only**, not implementation-plan certainty. A bug issue with a prioritized list of fix candidates and verifiable acceptance criteria is `Ready`. Acceptance criteria containing 「仮」/「要検討」 or that are too vague to self-verify → `Draft`. Draft issues must include `## Ready にするための未決事項`, listing only the concrete decisions needed to finalize acceptance criteria. `issue-refine`, `issue-discover`, `issue-dispatch`, `issue-implement`, and `issue-investigate` defer to `issue-create` for this rule — do not duplicate the definition; update `issue-create` and reference it.
 
 ## Depends on / parent semantics
 
