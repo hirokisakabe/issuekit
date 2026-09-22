@@ -75,7 +75,7 @@ DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.na
 - worker は runtime が割り当てた専用 workspace だけを書き込み可能にする。repository 全体や親 checkout を追加 writable root にしない。
 - 各 worker で `cross-review` を起動できるよう、worker runtime に対応する CLI が存在することを確認する。
 
-Codex CLI では `command -v codex`、`codex login status`、`codex exec --help` を確認し、現在の CLI が `--worktree` を提供することを確認する。issue #62 のスコープどおり version 範囲や feature flag state の事前判定、`--enable worktrees` の自動付与は行わない。worker は非対話であるため `-a never` を使い、新規 approval が必要な操作は成功したふりをせず失敗させる。`--sandbox workspace-write` を使い、worker は `gh` / `git push` で GitHub へ接続するため、`sandbox_workspace_write.network_access=true` を invocation に明示する。worktree の保存先や共有 git metadata を IssueKit 側の `--add-dir` で指定せず、Codex の managed worktree と sandbox 設定に委ねる。組織の managed policy がこの scoped network access を許可しない場合は worker を起動せず停止する。`--dangerously-bypass-approvals-and-sandbox` は使わない。
+Codex CLI では `command -v codex`、`codex login status`、`codex exec --help` を確認し、現在の CLI が `--worktree` を提供することを確認する。version 範囲や feature flag state は事前判定せず、`--enable worktrees` も自動付与しない。worker は非対話であるため `-a never` を使い、新規 approval が必要な操作は成功したふりをせず失敗させる。`--sandbox workspace-write` を使い、worker は `gh` / `git push` で GitHub へ接続するため、`sandbox_workspace_write.network_access=true` を invocation に明示する。worktree の保存先や共有 git metadata を IssueKit 側の `--add-dir` で指定せず、Codex の managed worktree と sandbox 設定に委ねる。組織の managed policy がこの scoped network access を許可しない場合は worker を起動せず停止する。`--dangerously-bypass-approvals-and-sandbox` は使わない。
 
 Claude Code では、write-capable subagent を起動する primitive が worktree isolation を提供することを明示的に確認する。`isolation: worktree` を持つ subagent または同等の公式 isolation primitive がなければ自動 dispatch を停止する。Agent teams は teammate ごとの worktree 隔離を提供しないため、書き込み実装には使わない。
 
