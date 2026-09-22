@@ -75,7 +75,7 @@ DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.na
 - worker は runtime が割り当てた専用 workspace だけを書き込み可能にする。repository 全体や親 checkout を追加 writable root にしない。
 - 各 worker で `cross-review` を起動できるよう、worker runtime に対応する CLI が存在することを確認する。
 
-Codex CLI では `command -v codex`、`codex login status`、`codex exec --help` を確認し、現在の CLI が `--worktree` を提供することを確認する。worker は非対話であるため `-a never` を使い、新規 approval が必要な操作は成功したふりをせず失敗させる。`--sandbox workspace-write` を使い、worker は `gh` / `git push` で GitHub へ接続するため、`sandbox_workspace_write.network_access=true` を invocation に明示する。worktree の保存先や共有 git metadata を IssueKit 側の `--add-dir` で指定せず、Codex の managed worktree と sandbox 設定に委ねる。組織の managed policy がこの scoped network access を許可しない場合は worker を起動せず停止する。`--dangerously-bypass-approvals-and-sandbox` は使わない。
+Codex CLI では `command -v codex`、`codex login status`、`codex exec --help` を確認し、現在の CLI が `--worktree` を提供することを確認する。issue #62 のスコープどおり version 範囲や feature flag state の事前判定、`--enable worktrees` の自動付与は行わない。worker は非対話であるため `-a never` を使い、新規 approval が必要な操作は成功したふりをせず失敗させる。`--sandbox workspace-write` を使い、worker は `gh` / `git push` で GitHub へ接続するため、`sandbox_workspace_write.network_access=true` を invocation に明示する。worktree の保存先や共有 git metadata を IssueKit 側の `--add-dir` で指定せず、Codex の managed worktree と sandbox 設定に委ねる。組織の managed policy がこの scoped network access を許可しない場合は worker を起動せず停止する。`--dangerously-bypass-approvals-and-sandbox` は使わない。
 
 Claude Code では、write-capable subagent を起動する primitive が worktree isolation を提供することを明示的に確認する。`isolation: worktree` を持つ subagent または同等の公式 isolation primitive がなければ自動 dispatch を停止する。Agent teams は teammate ごとの worktree 隔離を提供しないため、書き込み実装には使わない。
 
@@ -164,7 +164,7 @@ codex -a never exec \
 
 `codex exec --worktree` が非 zero で終了した場合は、その worker を failed として stderr / exit code を記録する。`git worktree add` や `codex exec -C <worktree-path>` に fallback しない。
 
-`--worktree` の存在と invocation 形式は、実行時の `codex exec --help` と [Codex CLI command reference](https://developers.openai.com/codex/cli/reference) で確認する。version 範囲や feature flag を IssueKit の契約として固定しない。
+`--worktree` の存在と invocation 形式は、実行中バイナリの `codex exec --help` を実行時の根拠として確認する。[Codex CLI command reference](https://developers.openai.com/codex/cli/reference) は `codex exec` 全般の公式資料として参照するが、そこへの `--worktree` 掲載を preflight 条件にはしない。version 範囲や feature flag を IssueKit の契約として固定せず、flag が利用不能なら native 起動失敗として扱う。
 
 `WORKER_PROMPT` には必ず次を含める。
 
@@ -193,7 +193,7 @@ App の top-level Worktree chat 作成と Handoff は App 所有であり、skil
 親 session は全 worker が完了または停止するまで監視する。
 
 1. indegree 0 かつ競合 barrier のない ready issue から、実効同時実行数まで起動する。
-2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から次の `codex exec --worktree` worker を起動する。`ISSUE_CLOSE_INTENT=false` の PR の merge 後も issue が open なら、その PR では issue が未完了であり、後続の完全実装や別 PR などによる正当な完了待ちとして報告する。対応 issue のない作業には issue close barrier を適用しない。merged PR が無い close は自動的に barrier を解除しない。
+2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から現在の runtime に対応する isolation primitive で次の worker を起動する。Codex CLI は `codex exec --worktree`、Claude Code は step 6 の worktree-isolated primitive を使う。`ISSUE_CLOSE_INTENT=false` の PR の merge 後も issue が open なら、その PR では issue が未完了であり、後続の完全実装や別 PR などによる正当な完了待ちとして報告する。対応 issue のない作業には issue close barrier を適用しない。merged PR が無い close は自動的に barrier を解除しない。
 3. worker が失敗または停止した場合、その worker に依存する後続だけを blocked とする。依存しない worker は継続し、空いた slot へ別の ready issue を入れる。
 4. 高競合の直列 barrier も依存 edge と同じ条件で扱い、先行 PR の merge commit が default branch から到達可能かつ先行 issue が `CLOSED` になったことを確認してから解除する。
 5. approval / sandbox / auth エラーは自動的に権限を拡大して再試行せず、worker と後続を blocked にして具体的な不足を記録する。

@@ -130,7 +130,8 @@ git check-ref-format --branch "$EXPECTED_BRANCH" >/dev/null 2>&1 || { echo "expe
 [ -z "$(git status --porcelain)" ] || { echo "branch 切り替え前の worktree が dirty です。" >&2; exit 1; }
 if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
   if git show-ref --verify --quiet "refs/heads/$EXPECTED_BRANCH"; then
-    git switch "$EXPECTED_BRANCH" || exit 1
+    echo "expected branch が既に存在し、今回の native worker 専用と確認できません。" >&2
+    exit 1
   else
     git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH" || exit 1
   fi
@@ -138,7 +139,7 @@ fi
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$EXPECTED_BRANCH" ] || exit 1
 ```
 
-detached HEAD や別 branch からの切り替えに失敗した場合、別 worktree で branch が使用中、既存 branch の割り当てが不明、または `origin/$DEFAULT_BRANCH` が取得できない可能性がある。別名の自動生成や branch の削除・上書きは行わず、実装前に blocker として停止する。
+native worker が expected branch で開始していればそのまま続行する。detached HEAD や別 branch で開始し、expected branch が未作成なら `origin/$DEFAULT_BRANCH` から作成する。expected branch が既に存在する場合は、同名の残存 branch や別 task の commit を取り込まないよう自動 switch / 再利用せず停止する。branch 切り替え失敗、別 worktree での使用、または `origin/$DEFAULT_BRANCH` の取得失敗も、別名の自動生成や branch の削除・上書きを行わず実装前の blocker とする。
 
 default branch 上の runtime 別分岐:
 
