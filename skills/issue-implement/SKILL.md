@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、runtime と worktree の実装隔離を preflight で保証してから、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 2.2.0
+version: 3.0.0
 ---
 
 # Issue Implement Skill
@@ -25,7 +25,7 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 - **含まない**:
   - default branch 名を hardcode した branch ガード。default branch 名はリポジトリにより異なる (main / master / develop / trunk 等) ため、`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` で動的に解決した値と現在ブランチを比較する。
   - Codex App の managed worktree / Handoff の作成・操作。これらは App が所有する機能であり、skill は App 管理 worktree を作成したふりをしない。
-  - Codex CLI の起動済み session を別 cwd へ安全に移せるという仮定。default branch 上では親 session 自身を移動せず、対象1件を `issue-dispatch` に引き継ぎ、通常の `git worktree` と `codex exec -C <path>` で専用 worker を起動する。
+  - Codex CLI の起動済み session を別 cwd へ安全に移せるという仮定。default branch 上では親 session 自身を移動せず、対象1件を `issue-dispatch` に引き継ぎ、`codex exec --worktree` で native managed worktree の専用 worker を起動する。
   - ユーザーが既に手動で feature ブランチに切り替えているケースの上書き。default branch 以外にいる場合は worktree 化を行わず既存ブランチを尊重する。
   - レビュー指摘の修正を `git commit --amend` / `rebase` / `fixup` で履歴整形すること。指摘対応は **追加 commit** で行い、試行錯誤やレビュー対応の経緯を履歴に残す。
   - issue コメントだけを成果物とする調査・設計・技術検証。`issue-investigate` の対象とする。
@@ -114,7 +114,7 @@ fi
 
 ここに到達した時点で、対象 issue は step 1 を通過した `Status: Ready` + 完了形 `PR` である。Draft / フォーマット不完全 / コメント上の未解決事項 / コメント完結型 / 要確認はすでに停止済みである。
 
-分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報、branch / path、または呼び出し文脈から、その worker と対象 issue / task に排他的に割り当てられたと確認できる linked worktree を指す。現在の対象への割り当てを確認できない、または別 task 用なら停止し、別 worktree で再開する。
+分類後は次の表を **上から順に**評価する。ここでいう「専用 worktree」は `GIT_COMMON_DIR` と `GIT_DIR` が異なるだけでなく、runtime の session / worker 情報、branch / path、または呼び出し文脈から、その worker と対象 issue / task に排他的に割り当てられたと確認できる linked worktree を指す。現在の対象への割り当てを確認できない、または別 task 用なら停止し、別 worktree で再開する。dispatcher から起動された Codex CLI worker は prompt の対象 issue、専用 worker 宣言、expected branch を割り当て根拠として使う。
 
 | 現在位置 / 呼び出し方 | 判定 |
 | --- | --- |
@@ -123,10 +123,25 @@ fi
 | default branch 以外の既存 feature branch、かつ単独実装 | ユーザーの branch を上書きせず、そのまま続行する。`CURRENT_BRANCH` が空ならこの判定に入れない。 |
 | default branch | runtime 別手順で専用 worktree へ移る。安全に移行できなければ停止する。 |
 
+dispatcher から `codex exec --worktree` で起動された Codex CLI worker は、上表で linked worktree と専用割り当てを確認した直後、最初の実装 write / commit より前に expected branch を確立する。`EXPECTED_BRANCH` は worker prompt から受け取り、空や不正なら停止する。
+
+```bash
+git check-ref-format --branch "$EXPECTED_BRANCH" >/dev/null 2>&1 || { echo "expected branch が不正です。" >&2; exit 1; }
+[ -z "$(git status --porcelain)" ] || { echo "branch 切り替え前の worktree が dirty です。" >&2; exit 1; }
+if [ "$CURRENT_BRANCH" = "$EXPECTED_BRANCH" ] || git show-ref --verify --quiet "refs/heads/$EXPECTED_BRANCH"; then
+  echo "expected branch が worker の確立前から存在し、今回の native worker 専用と確認できません。" >&2
+  exit 1
+fi
+git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH" || exit 1
+[ "$(git symbolic-ref --quiet --short HEAD)" = "$EXPECTED_BRANCH" ] || exit 1
+```
+
+native worker は dispatcher が不存在を確認した expected branch を `origin/$DEFAULT_BRANCH` から新規作成する。起動時点ですでに expected branch 上にいる場合や ref が存在する場合は、同名の残存 branch、競合 race、別 task の commit を取り込まないよう自動 switch / 再利用せず停止する。branch 作成失敗、別 worktree での使用、または `origin/$DEFAULT_BRANCH` の取得失敗も、別名の自動生成や branch の削除・上書きを行わず実装前の blocker とする。
+
 default branch 上の runtime 別分岐:
 
 - **Claude Code 対話 session**: `EnterWorktree` が利用できる場合だけ `issuekit:worktree-start` (APM plain-skill mode では `worktree-start`) を呼ぶ。issue title から作った `<title-slug>-<issue 番号>` を **タスク説明モード**で渡し、切り替え後に `GIT_COMMON_DIR != GIT_DIR` を再確認してから続行する。`EnterWorktree` が無い旧版や、切り替えに失敗した場合は停止し、`claude --worktree <title-slug>-<issue 番号>` で新しい session を開始して `issue-implement <issue 番号>` を再実行するよう案内する。
-- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、上記の共通規則で確定した `ISSUE_CLOSE_INTENT=true|false` および `ISSUE_CLOSE_INTENT_REASON=<根拠>` を `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を機械的な issue 番号の形式から再判定しない。dispatcher が衝突しない通常の git worktree / branch を作成し、`codex exec -C <worktree-path>` で `issue-implement <issue番号>` worker を1つだけ起動して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。
+- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、上記の共通規則で確定した `ISSUE_CLOSE_INTENT=true|false` および `ISSUE_CLOSE_INTENT_REASON=<根拠>` を `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を機械的な issue 番号の形式から再判定しない。dispatcher が `codex exec --worktree` で native managed worktree の `issue-implement <issue番号>` worker を1つだけ起動し、expected branch を prompt へ渡して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。`--worktree` 起動に失敗した場合は独自 worktree へ fallback しない。
 
 - **Codex App**: App の **Worktree** で開始済み、または **Handoff** で managed worktree へ移動済みなら続行する。Local の default branch 上なら実装前に停止し、App UI で Worktree chat を開始するか Handoff してから再実行するよう案内する。managed worktree / Handoff は runtime 所有であり、skill 自身は作成・操作しない。
 - **Claude Code Agent view / Desktop**: Agent view の background session と Desktop の新規 Code session は runtime が自動隔離する。実際に linked worktree へ移ったことを確認して続行する。移行前の main checkout では書き込みを始めない。
@@ -211,6 +226,8 @@ PR URL と CI 結果（成功 / 修正後成功）をユーザーに返す。
 - default branch 名 (`main` / `master` / `develop` 等) を hardcode した branch ガード。step 4 の判定は `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` の結果と動的に比較する。
 - default branch 上で worktree 化を単に skip して実装へ進むこと。runtime が安全に切り替えられなければ、書き込み・commit 前に停止する。Codex CLI は単一 issue を `issue-dispatch` へ引き継ぐ。
 - Codex CLI の起動済み親 session の cwd を変更すること、または Codex App の managed worktree / Handoff を skill が作成・操作すること。
+- dispatcher worker が detached HEAD / expected branch 以外のまま実装 write や commit を始めること。linked worktree と専用割り当てを確認後、expected branch を確立できなければ停止する。
+- Codex CLI dispatch で `git worktree add` や `codex exec -C <worktree-path>` の互換 fallback を使うこと。
 - 書き込みを伴う並列 worker が同じ worktree を共有すること。並列 worker は branch 名にかかわらず 1 worker = 1 worktree とする。
 - 単独実装で、すでに default branch 以外の feature branch にいるユーザーへの worktree 強制切り替え。step 4 の分類で既存 branch を尊重する。
 - step 4 で `worktree-start` を呼ぶ際に issue 番号を渡すこと。issue 番号を渡すと `worktree-start` 側の Status 判定経路に入り `issue-implement` への再帰連鎖が起きるため、タスク説明モードで slug (`<title>-<issue 番号>`) のみを渡す。

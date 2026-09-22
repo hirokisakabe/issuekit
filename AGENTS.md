@@ -15,7 +15,7 @@ The bundle codifies an **issue-driven development** workflow where the GitHub is
 `issue-dispatch` is the upper-level implementation scheduler:
 
 - `issue-dispatch` → N × `issue-implement` (one dedicated worker / worktree / branch / PR per issue; dependencies and high-conflict issues are serialized)
-- `issue-implement` → `issue-dispatch` only for a single PR-shaped Ready issue invoked from Codex CLI on the default branch. The dispatcher creates one ordinary worktree and launches `codex exec -C <path>`; the linked-worktree worker re-enters `issue-implement` and continues without dispatching again.
+- `issue-implement` → `issue-dispatch` only for a single PR-shaped Ready issue invoked from Codex CLI on the default branch. The dispatcher launches `codex exec --worktree`; the native managed-worktree worker re-enters `issue-implement`, verifies isolation, establishes the expected issue branch, and continues without dispatching again.
 - Direct multi-issue implementation requests enter `issue-dispatch`. `issue-pick` remains read-only and does not chain into it without a new explicit implementation request from the user.
 
 `issue-discover` is the read-only entry point for finding new, untracked improvement themes from repository evidence:
@@ -40,7 +40,7 @@ The `issue-implement ↔ worktree-start` and `issue-implement ↔ issue-dispatch
 
 - When `worktree-start` is the entry point and chains forward into `issue-implement`, the latter sees that it is already in a linked worktree and continues without re-invoking `worktree-start`.
 - When `issue-implement` is the entry point and calls `worktree-start` from step 4, it must pass a pre-generated branch-name slug (`<title>-<issue番号>`), **not** the issue number. Passing the number would re-enter `worktree-start`'s Status-detection path and re-chain back into `issue-implement` unnecessarily. The recursion would still terminate via the no-op check, but the redundant invocation is avoided by routing through the task-description mode of `worktree-start`.
-- When Codex CLI `issue-implement` on the default branch calls `issue-dispatch`, the dispatcher passes the issue number to a new worker in a dedicated linked worktree. That worker's isolation preflight recognizes its assignment and continues locally, so it does not call `issue-dispatch` again.
+- When Codex CLI `issue-implement` on the default branch calls `issue-dispatch`, the dispatcher passes the issue number and expected branch to a new `codex exec --worktree` worker. That worker's isolation preflight recognizes its assignment, switches from detached HEAD or an unexpected branch before its first implementation write, and continues locally without calling `issue-dispatch` again.
 
 When editing one skill, check whether others reference it. Cross-references appear in two forms:
 
@@ -81,13 +81,13 @@ These strings are not localizable in the current implementation. Forking is requ
 - A linked worktree dedicated to the current issue/task continues without double creation. A worktree assigned to another task, or with unverifiable assignment, stops. A non-default feature branch is preserved for a single implementation. A main working tree in detached HEAD stops as unclassifiable; a runtime-owned detached HEAD linked worktree (such as Codex App) is allowed when its current-task assignment is established.
 - A write-capable parallel worker is evaluated first and requires **one worker = one worktree** even if it is already on a feature branch. Continue only when runtime/session context establishes that the linked worktree is dedicated to that worker; otherwise stop.
 - Default-branch execution must move to a dedicated worktree or stop before implementation. There is no skip-and-continue path.
-- Codex CLI on the default branch hands a single issue to `issue-dispatch`. The parent remains in its current cwd; the dispatcher creates an ordinary worktree and launches `codex exec -C <path>` with one issue-specific worker. If dispatch preflight cannot guarantee sandbox, approval, authentication, or isolation, it stops before implementation.
+- Codex CLI on the default branch hands a single issue to `issue-dispatch`. The parent remains in its current cwd; the dispatcher launches one issue-specific worker with `codex exec --worktree`. Codex owns the managed worktree path and lifecycle. If dispatch preflight cannot guarantee native worktree support, sandbox, approval, authentication, or isolation, it stops before implementation without an IssueKit-managed fallback.
 - Codex App managed worktrees and Handoff are App-owned. Skills may verify that the chat is isolated or tell the user to use the App UI, but must not claim to create or control App-managed worktrees.
 - Claude Code interactive sessions may invoke `worktree-start`, which owns the in-session `EnterWorktree` call. `claude --worktree`, subagent `isolation: worktree`, Agent view background-session isolation, and Desktop automatic session worktrees remain runtime-owned paths.
 
 `worktree-start` is therefore still Claude Code-only, but its no-op inside an existing linked worktree is an **issuekit policy**, not a general `EnterWorktree` limitation. Current Claude Code can switch to another existing worktree under `.claude/worktrees/`; issuekit intentionally does not do so because it would displace a session already assigned to a task. Resume and cleanup follow the current [Claude Code worktree documentation](https://code.claude.com/docs/en/worktrees): resumes return to the associated worktree when it exists, interactive exit cleanup depends on whether work is present, and non-interactive `-p` worktrees require manual cleanup.
 
-Worktrees are fresh checkouts. Document dependency/environment initialization and disk usage where relevant. `.worktreeinclude` is for ignored local files needed by Claude Code-created and Codex App managed worktrees; it does not apply to ordinary `git worktree add`.
+Worktrees are fresh checkouts. Document dependency/environment initialization and disk usage where relevant. Runtime-managed storage, retention, snapshots, and cleanup are not part of the IssueKit contract. `.worktreeinclude` is for ignored local files needed by Claude Code-created and Codex App managed worktrees.
 
 ## Dispatch isolation and scheduling
 
@@ -97,7 +97,7 @@ Worktrees are fresh checkouts. Document dependency/environment initialization an
 - `Depends on:` is a DAG. Open dependencies outside the candidate set block the issue. Dependencies inside the set create scheduling edges, but a downstream worker still waits for the dependency issue to close and land on the default branch; PR + CI success alone is not a merge substitute.
 - High-overlap changes are serialized with the same merge barrier. If independence cannot be established, show the uncertain path estimate before implementation and ask the user whether to serialize or exclude.
 - Multiple-issue concurrency defaults to 3 and is capped by the user's value, runtime limit, and currently independent Ready issue count. A failed worker blocks only its dependents; unrelated workers continue.
-- Codex CLI write workers use ordinary `git worktree` checkouts and `codex exec -C`. Their non-interactive sandbox must write the assigned worktree and shared git common dir without granting broad repository access. Fresh approvals cannot be requested mid-run, so approval, sandbox, `gh`, and Codex authentication are preflight requirements.
+- Codex CLI write workers use `codex exec --worktree`. Their non-interactive sandbox writes the Codex-assigned managed worktree without granting broad repository access. IssueKit does not choose the worktree path or manage its Git metadata / cleanup. Fresh approvals cannot be requested mid-run, so native worktree support, approval, sandbox, `gh`, and Codex authentication are preflight requirements.
 - Current Codex native subagents may be used for read-only analysis, but not parallel writes unless the runtime explicitly guarantees a dedicated cwd / worktree per worker. Claude Code write workers use `isolation: worktree`, Agent view isolation, or an equivalent official primitive; non-isolated Agent teams are not used.
 - Codex App top-level Worktree chats and Handoff remain App-owned. When the surface cannot guarantee automated per-issue worktrees, return the plan and launch prompts; do not automate the UI.
 - The parent waits for every worker to succeed, fail, block, or remain waiting, then aggregates issue number, state, branch, PR URL, CI, and blocker. It never auto-merges or auto-cleans worker state.
@@ -119,7 +119,7 @@ The runtime must be determined from the running agent's explicit environment, no
 
 - `gh` CLI — all GitHub operations. Must be authenticated against the target repo.
 - The CLI for the current agent runtime: Codex CLI (`brew install --cask codex`) when implementing from Codex, or Claude CLI (`npm install -g @anthropic-ai/claude-code`) when implementing from Claude Code. `cross-review` must fail loudly (not silently skip) when the corresponding CLI is unavailable or the current runtime has no documented reviewer-session launch step.
-- Codex CLI dispatch additionally requires authenticated non-interactive `codex exec`, ordinary `git worktree` support, and sandbox write access to each worker checkout plus the shared git common dir.
+- Codex CLI dispatch additionally requires authenticated non-interactive `codex exec`, `codex exec --worktree` support, and sandbox write access to the runtime-assigned worker checkout.
 - Claude Code with `EnterWorktree` support — required by `worktree-start`. If unavailable, the skill instructs users to update/restart or start a new isolated session with `claude --worktree` rather than continuing on the default branch.
 
 ## Editing skills
