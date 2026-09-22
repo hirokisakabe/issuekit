@@ -128,18 +128,15 @@ dispatcher から `codex exec --worktree` で起動された Codex CLI worker �
 ```bash
 git check-ref-format --branch "$EXPECTED_BRANCH" >/dev/null 2>&1 || { echo "expected branch が不正です。" >&2; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "branch 切り替え前の worktree が dirty です。" >&2; exit 1; }
-if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
-  if git show-ref --verify --quiet "refs/heads/$EXPECTED_BRANCH"; then
-    echo "expected branch が既に存在し、今回の native worker 専用と確認できません。" >&2
-    exit 1
-  else
-    git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH" || exit 1
-  fi
+if [ "$CURRENT_BRANCH" = "$EXPECTED_BRANCH" ] || git show-ref --verify --quiet "refs/heads/$EXPECTED_BRANCH"; then
+  echo "expected branch が worker の確立前から存在し、今回の native worker 専用と確認できません。" >&2
+  exit 1
 fi
+git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH" || exit 1
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$EXPECTED_BRANCH" ] || exit 1
 ```
 
-native worker が expected branch で開始していればそのまま続行する。detached HEAD や別 branch で開始し、expected branch が未作成なら `origin/$DEFAULT_BRANCH` から作成する。expected branch が既に存在する場合は、同名の残存 branch や別 task の commit を取り込まないよう自動 switch / 再利用せず停止する。branch 切り替え失敗、別 worktree での使用、または `origin/$DEFAULT_BRANCH` の取得失敗も、別名の自動生成や branch の削除・上書きを行わず実装前の blocker とする。
+native worker は dispatcher が不存在を確認した expected branch を `origin/$DEFAULT_BRANCH` から新規作成する。起動時点ですでに expected branch 上にいる場合や ref が存在する場合は、同名の残存 branch、競合 race、別 task の commit を取り込まないよう自動 switch / 再利用せず停止する。branch 作成失敗、別 worktree での使用、または `origin/$DEFAULT_BRANCH` の取得失敗も、別名の自動生成や branch の削除・上書きを行わず実装前の blocker とする。
 
 default branch 上の runtime 別分岐:
 

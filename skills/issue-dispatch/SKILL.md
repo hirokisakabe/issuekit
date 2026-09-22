@@ -137,7 +137,7 @@ worker 起動前に次を含む計画を表で示す。
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | #N | ... | #M / none | ... | independent / serial / unknown | 1 | Codex managed worktree / runtime primitive | `<slug>-N` | ready / waiting / excluded |
 
-branch は issue title 由来の衝突しない kebab-case slug に issue 番号を付ける。Codex CLI の worktree path、directory 名、Git 管理情報、保持数、cleanup は起動計画に含めず、Codex に委ねる。IssueKit は各 worker に対象 issue と expected branch を割り当て、worker の preflight と結果から排他的な worktree / branch 割り当てを確認する。既存 branch がある場合、対象 issue 専用であると確認できたときだけ worker に切り替えさせ、それ以外は停止する。別 task の worktree / branch を流用しない。
+branch は issue title 由来の衝突しない kebab-case slug に issue 番号を付ける。Codex CLI の worktree path、directory 名、Git 管理情報、保持数、cleanup は起動計画に含めず、Codex に委ねる。IssueKit は各 worker に対象 issue と expected branch を割り当て、worker の preflight と結果から排他的な worktree / branch 割り当てを確認する。Codex CLI worker の起動前に `git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"` で expected branch の不存在を確認し、既に存在する場合は由来を推測・再利用せず blocked として停止する。別 task の worktree / branch を流用しない。
 
 複数 issue の実効同時実行数は次の最小値とする。
 
