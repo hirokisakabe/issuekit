@@ -25,7 +25,7 @@ GitHub issue を起点とした issue-driven 開発サイクルの中核 skill�
 - **含まない**:
   - default branch 名を hardcode した branch ガード。default branch 名はリポジトリにより異なる (main / master / develop / trunk 等) ため、`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` で動的に解決した値と現在ブランチを比較する。
   - Codex App の managed worktree / Handoff の作成・操作。これらは App が所有する機能であり、skill は App 管理 worktree を作成したふりをしない。
-  - Codex CLI の起動済み session を別 cwd へ安全に移せるという仮定。default branch 上では親 session 自身を移動せず、対象1件を `issue-dispatch` に引き継ぎ、`codex exec --worktree` で native managed worktree の専用 worker を起動する。
+  - Codex CLI の起動済み session を別 cwd へ安全に移せるという仮定。default branch 上では親 session 自身を移動せず、対象1件を `issue-dispatch` に引き継ぎ、`codex exec --approve-for-me --worktree` で native managed worktree の専用 worker を起動する。
   - ユーザーが既に手動で feature ブランチに切り替えているケースの上書き。default branch 以外にいる場合は worktree 化を行わず既存ブランチを尊重する。
   - レビュー指摘の修正を `git commit --amend` / `rebase` / `fixup` で履歴整形すること。指摘対応は **追加 commit** で行い、試行錯誤やレビュー対応の経緯を履歴に残す。
   - issue コメントだけを成果物とする調査・設計・技術検証。`issue-investigate` の対象とする。
@@ -125,7 +125,7 @@ fi
 
 dispatcher から `codex exec --approve-for-me --worktree` で起動された Codex CLI worker は、上表で linked worktree と専用割り当てを確認した直後、最初の実装 write / commit より前に expected branch を確立する。`EXPECTED_BRANCH` は worker prompt から受け取り、空や不正なら停止する。
 
-この worker では、`git fetch` / `git switch` / `git add` / `git commit` / `git push` と、その他の Git metadata を変更する操作を、通常の sandbox command として一度失敗させてから再試行してはならない。各操作は**最初の実行から、その exact command だけ**を対象に narrowly scoped escalation を要求し、Auto-review の判定を受ける。複数の Git mutation を shell の `&&` / `;` や wrapper script にまとめず、1 command ずつ要求する。source file の編集、test、lint、inspection、acceptance-check、cross-review は `workspace-write` 内に留め、Git metadata 以外へ escalation を広げない。
+この worker では、`git fetch` / `git switch` / `git add` / `git commit` / `git push` と、その他の Git metadata を変更する操作を、通常の sandbox command として一度失敗させてから再試行してはならない。各操作は**最初の実行から、その exact command だけ**を対象に narrowly scoped escalation を要求し、Auto-review の判定を受ける。複数の Git mutation を shell operator、pipeline、subshell、wrapper script 等による複合 command にまとめず、1 command ずつ要求する。source file の編集、test、lint、inspection、acceptance-check、cross-review は `workspace-write` 内に留め、Git metadata 以外へ escalation を広げない。
 
 Auto-review が unavailable / denied / timeout の場合、または承認後も Git metadata write が失敗した場合は、その場で worker を blocked とし、通常実行での再試行や権限拡大をしない。blocker には次を記録する。
 
@@ -142,19 +142,19 @@ if [ "$CURRENT_BRANCH" = "$EXPECTED_BRANCH" ] || git show-ref --verify --quiet "
   echo "expected branch が worker の確立前から存在し、今回の native worker 専用と確認できません。" >&2
   exit 1
 fi
-git fetch origin "$DEFAULT_BRANCH" || exit 1
-git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH" || exit 1
+git fetch origin "$DEFAULT_BRANCH"
+git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH"
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$EXPECTED_BRANCH" ] || exit 1
 ```
 
-上の `git fetch` と `git switch` は、コードブロック全体をまとめて実行するのではなく、それぞれを個別の exact command として scoped escalation 付きで最初から実行する。read-only の `check-ref-format` / `status` / `show-ref` / branch 確認は sandbox 内で実行する。
+上の `git fetch` と `git switch` は、コードブロック全体をまとめて実行するのではなく、それぞれを完全に別の exact command として scoped escalation 付きで最初から実行する。いずれかが non-zero なら、その時点で上記 blocker 情報を記録して即座に blocked とする。read-only の `check-ref-format` / `status` / `show-ref` / branch 確認は sandbox 内で実行する。
 
 native worker は dispatcher が不存在を確認した expected branch を `origin/$DEFAULT_BRANCH` から新規作成する。起動時点ですでに expected branch 上にいる場合や ref が存在する場合は、同名の残存 branch、競合 race、別 task の commit を取り込まないよう自動 switch / 再利用せず停止する。branch 作成失敗、別 worktree での使用、または `origin/$DEFAULT_BRANCH` の取得失敗も、別名の自動生成や branch の削除・上書きを行わず実装前の blocker とする。
 
 default branch 上の runtime 別分岐:
 
 - **Claude Code 対話 session**: `EnterWorktree` が利用できる場合だけ `issuekit:worktree-start` (APM plain-skill mode では `worktree-start`) を呼ぶ。issue title から作った `<title-slug>-<issue 番号>` を **タスク説明モード**で渡し、切り替え後に `GIT_COMMON_DIR != GIT_DIR` を再確認してから続行する。`EnterWorktree` が無い旧版や、切り替えに失敗した場合は停止し、`claude --worktree <title-slug>-<issue 番号>` で新しい session を開始して `issue-implement <issue 番号>` を再実行するよう案内する。
-- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、上記の共通規則で確定した `ISSUE_CLOSE_INTENT=true|false` および `ISSUE_CLOSE_INTENT_REASON=<根拠>` を `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を機械的な issue 番号の形式から再判定しない。dispatcher が `codex exec --worktree` で native managed worktree の `issue-implement <issue番号>` worker を1つだけ起動し、expected branch を prompt へ渡して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。`--worktree` 起動に失敗した場合は独自 worktree へ fallback しない。
+- **Codex CLI**: worktree 作成を skip して続行してはならない。起動済み親 session の cwd を skill が安全に移せるとは仮定せず、対象 issue 1件と、上記の共通規則で確定した `ISSUE_CLOSE_INTENT=true|false` および `ISSUE_CLOSE_INTENT_REASON=<根拠>` を `issuekit:issue-dispatch <issue番号>`（APM plain-skill mode では `issue-dispatch <issue番号>`）へ引き継ぐ。dispatcher はこの継承値を機械的な issue 番号の形式から再判定しない。dispatcher が `codex exec --approve-for-me --worktree` で native managed worktree の `issue-implement <issue番号>` worker を1つだけ起動し、expected branch を prompt へ渡して PR / CI まで待機・集約する。本 invocation は実装を開始せず、dispatcher の結果をそのまま完了報告する。native worker 起動に失敗した場合は独自 worktree へ fallback しない。
 
 - **Codex App**: App の **Worktree** で開始済み、または **Handoff** で managed worktree へ移動済みなら続行する。Local の default branch 上なら実装前に停止し、App UI で Worktree chat を開始するか Handoff してから再実行するよう案内する。managed worktree / Handoff は runtime 所有であり、skill 自身は作成・操作しない。
 - **Claude Code Agent view / Desktop**: Agent view の background session と Desktop の新規 Code session は runtime が自動隔離する。実際に linked worktree へ移ったことを確認して続行する。移行前の main checkout では書き込みを始めない。
@@ -221,7 +221,7 @@ EOF
 - **PR description は日本語**で記載する（CLAUDE.md の常時適用ルール）。
 - description の先頭に `close #<issue 番号>` を記載するのは `ISSUE_CLOSE_INTENT=true` の場合だけとする。対応 issue の完全実装は、直接の番号 / URL 指定、提示済み候補への参照、dispatcher の機械選定のいずれでも `true` とする。対応 issue がない場合や、部分実装・epic の一部・関連付けだけの PR は `false` とする。dispatcher worker は prompt の flag と reason をそのまま使い、機械的に渡された `issue-implement <N>` だけを close intent の根拠にしない。
 - description には目的、影響パッケージパス、ローカル検証手順を含める。
-- PR 作成前の `git push -u origin "$EXPECTED_BRANCH"` も、最初の実行からその exact command だけの scoped escalation として要求する。Auto-review または Git metadata write が失敗した場合は PR を作成せず、step 4 の形式で blocked を報告する。
+- Codex managed linked-worktree worker では、PR 作成前の `git push -u origin "$EXPECTED_BRANCH"` も、最初の実行からその exact command だけの scoped escalation として要求する。Auto-review または Git metadata write が失敗した場合は PR を作成せず、step 4 の形式で blocked を報告する。それ以外の runtime / checkout では、現在 branch と対象 branch が一致し、default branch でないことを安全に確認したうえで従来どおり push する。
 
 ### 10. CI 確認
 

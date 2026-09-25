@@ -24,7 +24,7 @@ GitHub issue ごとの実装契約は既存の `issue-implement` に委ね、親
 - **`issuekit:issue-create` skill**: `Status` と完了形の single source of truth。APM plain-skill mode では `issue-create`。
 - **`gh` CLI**: issue / repository / PR / CI の取得と GitHub 認証確認に使う。
 - **`git` CLI**: default branch の更新、依存 barrier、worker の linked worktree / branch 確認に使う。
-- **実行中 runtime の公式 isolation / worker primitive**: Codex CLI では `codex exec --worktree`、Claude Code では worktree-isolated subagent または Agent view 等の同等 primitive を使う。
+- **実行中 runtime の公式 isolation / worker primitive**: Codex CLI では `codex exec --approve-for-me --worktree`、Claude Code では worktree-isolated subagent または Agent view 等の同等 primitive を使う。
 
 ## 入力
 
@@ -169,7 +169,7 @@ codex exec \
   "$WORKER_PROMPT"
 ```
 
-`codex exec --worktree` が非 zero で終了した場合は、その worker を failed として stderr / exit code を記録する。`git worktree add` や `codex exec -C <worktree-path>` に fallback しない。
+`codex exec --approve-for-me --worktree` が非 zero で終了した場合は、その worker を failed として stderr / exit code を記録する。`git worktree add` や `codex exec -C <worktree-path>` に fallback しない。
 
 `--worktree` の存在と invocation 形式は、実行中バイナリの `codex exec --help` を実行時の根拠として確認する。[Codex CLI command reference](https://developers.openai.com/codex/cli/reference) は `codex exec` 全般の公式資料として参照するが、そこへの `--worktree` 掲載を preflight 条件にはしない。version 範囲や feature flag を IssueKit の契約として固定せず、flag が利用不能なら native 起動失敗として扱う。
 
@@ -187,7 +187,7 @@ codex exec \
 
 各 worker の stdout / stderr と終了 code を issue ごとに分離して保存し、親が監視できる process handle を保持する。バックグラウンド起動しただけで完了扱いにしない。
 
-Codex native subagent は subagent ごとの専用 cwd / worktree が runtime から明示的に保証される場合だけ書き込み worker に使える。保証がない current runtime では同一 checkout 上の書き込み並列化に使わず、上記 `codex exec --worktree` を使う。これも利用できなければ実装前に停止する。
+Codex native subagent は subagent ごとの専用 cwd / worktree が runtime から明示的に保証される場合だけ書き込み worker に使える。保証がない current runtime では同一 checkout 上の書き込み並列化に使わず、上記 `codex exec --approve-for-me --worktree` を使う。これも利用できなければ実装前に停止する。
 
 #### Claude Code
 
@@ -202,7 +202,7 @@ App の top-level Worktree chat 作成と Handoff は App 所有であり、skil
 親 session は全 worker が完了または停止するまで監視する。
 
 1. indegree 0 かつ競合 barrier のない ready issue から、実効同時実行数まで起動する。
-2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から現在の runtime に対応する isolation primitive で次の worker を起動する。Codex CLI は `codex exec --worktree`、Claude Code は step 6 の worktree-isolated primitive を使う。`ISSUE_CLOSE_INTENT=false` の PR の merge 後も issue が open なら、その PR では issue が未完了であり、後続の完全実装や別 PR などによる正当な完了待ちとして報告する。対応 issue のない作業には issue close barrier を適用しない。merged PR が無い close は自動的に barrier を解除しない。
+2. worker が成功しても、その issue に依存する後続は worker が返した PR URL を `gh pr view` で追跡し、その merge commit が default branch から到達可能かつ依存 issue が `CLOSED` になるまで待つ。merge 後に `git fetch origin "$DEFAULT_BRANCH"` と `git merge-base --is-ancestor <merge-commit> "origin/$DEFAULT_BRANCH"` を実行し、成功後にだけ最新 default branch から現在の runtime に対応する isolation primitive で次の worker を起動する。Codex CLI は `codex exec --approve-for-me --worktree`、Claude Code は step 6 の worktree-isolated primitive を使う。`ISSUE_CLOSE_INTENT=false` の PR の merge 後も issue が open なら、その PR では issue が未完了であり、後続の完全実装や別 PR などによる正当な完了待ちとして報告する。対応 issue のない作業には issue close barrier を適用しない。merged PR が無い close は自動的に barrier を解除しない。
 3. worker が失敗または停止した場合、その worker に依存する後続だけを blocked とする。依存しない worker は継続し、空いた slot へ別の ready issue を入れる。
 4. 高競合の直列 barrier も依存 edge と同じ条件で扱い、先行 PR の merge commit が default branch から到達可能かつ先行 issue が `CLOSED` になったことを確認してから解除する。
 5. approval / sandbox / auth エラーは自動的に権限を拡大して再試行せず、worker と後続を blocked にして具体的な不足を記録する。
@@ -211,6 +211,8 @@ Codex managed linked worktree 経路を変更した場合は、PR 前に次の�
 
 - **成功経路**: Auto-review が各 exact Git command を承認する環境で、expected branch が最初の implementation write 前に作成され、`add` / `commit` / `push`、PR、CI まで継続する。
 - **失敗経路**: disposable な検証用 worker で Auto-review を拒否または利用不能にするか、linked worktree の共有 Git metadata write を失敗させ、worker が blocked になり、上記 blocker 情報を残し、danger-full-access、writable root 追加、`--add-dir`、手動 worktree fallback のいずれも適用しない。
+
+両経路の実行条件、実行した exact Git commands、Auto-review の判定、worker state、branch、PR / CI または blocker を検証証跡として残す。通常は PR description の検証欄へ記載し、PR を作成できない失敗経路は対象 issue のコメントへ記録する。秘密情報、ローカル絶対 path、reviewer の内部情報は記載しない。
 
 ### 8. 結果の集約
 
