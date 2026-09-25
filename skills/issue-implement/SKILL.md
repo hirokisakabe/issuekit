@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: 特定の GitHub issue への実装着手と PR 作成を依頼されたときに使う。issue 番号・URL・会話内で選んだ issue のいずれかを起点に、runtime と worktree の実装隔離を preflight で保証してから、実装・commit・lint・受け入れ条件チェック・cross-review・PR 作成・CI 確認まで一気通貫で自動進行する。コードを書いてプルリクを出す作業全般が対象で、issue 選定相談・タイトル編集・クローズ操作・PR レビュー単体には使わない。
-version: 3.0.0
+version: 3.1.0
 ---
 
 # Issue Implement Skill
@@ -123,7 +123,17 @@ fi
 | default branch 以外の既存 feature branch、かつ単独実装 | ユーザーの branch を上書きせず、そのまま続行する。`CURRENT_BRANCH` が空ならこの判定に入れない。 |
 | default branch | runtime 別手順で専用 worktree へ移る。安全に移行できなければ停止する。 |
 
-dispatcher から `codex exec --worktree` で起動された Codex CLI worker は、上表で linked worktree と専用割り当てを確認した直後、最初の実装 write / commit より前に expected branch を確立する。`EXPECTED_BRANCH` は worker prompt から受け取り、空や不正なら停止する。
+dispatcher から `codex exec --approve-for-me --worktree` で起動された Codex CLI worker は、上表で linked worktree と専用割り当てを確認した直後、最初の実装 write / commit より前に expected branch を確立する。`EXPECTED_BRANCH` は worker prompt から受け取り、空や不正なら停止する。
+
+この worker では、`git fetch` / `git switch` / `git add` / `git commit` / `git push` と、その他の Git metadata を変更する操作を、通常の sandbox command として一度失敗させてから再試行してはならない。各操作は**最初の実行から、その exact command だけ**を対象に narrowly scoped escalation を要求し、Auto-review の判定を受ける。複数の Git mutation を shell の `&&` / `;` や wrapper script にまとめず、1 command ずつ要求する。source file の編集、test、lint、inspection、acceptance-check、cross-review は `workspace-write` 内に留め、Git metadata 以外へ escalation を広げない。
+
+Auto-review が unavailable / denied / timeout の場合、または承認後も Git metadata write が失敗した場合は、その場で worker を blocked とし、通常実行での再試行や権限拡大をしない。blocker には次を記録する。
+
+- 失敗した exact Git command
+- Auto-review の状態、または reviewer が返した rationale
+- `git rev-parse --git-dir` と `git rev-parse --git-common-dir` の出力、および両者が同一か linked worktree として分離しているか
+
+`danger-full-access`、`--dangerously-bypass-approvals-and-sandbox`、repository / 共有 checkout / Git metadata directory の writable root 追加、`--add-dir`、alternate Git directory、手動 `git worktree` fallback は適用しない。
 
 ```bash
 git check-ref-format --branch "$EXPECTED_BRANCH" >/dev/null 2>&1 || { echo "expected branch が不正です。" >&2; exit 1; }
@@ -132,9 +142,12 @@ if [ "$CURRENT_BRANCH" = "$EXPECTED_BRANCH" ] || git show-ref --verify --quiet "
   echo "expected branch が worker の確立前から存在し、今回の native worker 専用と確認できません。" >&2
   exit 1
 fi
+git fetch origin "$DEFAULT_BRANCH" || exit 1
 git switch -c "$EXPECTED_BRANCH" "origin/$DEFAULT_BRANCH" || exit 1
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$EXPECTED_BRANCH" ] || exit 1
 ```
+
+上の `git fetch` と `git switch` は、コードブロック全体をまとめて実行するのではなく、それぞれを個別の exact command として scoped escalation 付きで最初から実行する。read-only の `check-ref-format` / `status` / `show-ref` / branch 確認は sandbox 内で実行する。
 
 native worker は dispatcher が不存在を確認した expected branch を `origin/$DEFAULT_BRANCH` から新規作成する。起動時点ですでに expected branch 上にいる場合や ref が存在する場合は、同名の残存 branch、競合 race、別 task の commit を取り込まないよう自動 switch / 再利用せず停止する。branch 作成失敗、別 worktree での使用、または `origin/$DEFAULT_BRANCH` の取得失敗も、別名の自動生成や branch の削除・上書きを行わず実装前の blocker とする。
 
@@ -168,6 +181,8 @@ issue 本文の「実装方針」「受け入れ条件」「スコープ外」�
 - **試行錯誤の途中段階も残してよい**: 「方針 A を試した → やめて方針 B に切り替えた」のような経過は、後追いの価値があるなら commit として残す（ただし明らかに作業途中の壊れた状態は commit しない）。
 
 commit メッセージは Conventional Commit-like prefix (`feat:` / `fix:` / `chore:` / `refactor:` / `docs:` 等) を使用し、scope を絞った具体的な記述にする。
+
+Codex managed linked worktree worker で commit する際は、対象 path を限定した `git add <path...>` と `git commit -m <message>` を別々の exact command として、どちらも最初の実行から scoped escalation 付きで要求する。`git add .` のように対象を不必要に広げない。
 
 ### 6. lint / format / 型チェック
 
@@ -206,6 +221,7 @@ EOF
 - **PR description は日本語**で記載する（CLAUDE.md の常時適用ルール）。
 - description の先頭に `close #<issue 番号>` を記載するのは `ISSUE_CLOSE_INTENT=true` の場合だけとする。対応 issue の完全実装は、直接の番号 / URL 指定、提示済み候補への参照、dispatcher の機械選定のいずれでも `true` とする。対応 issue がない場合や、部分実装・epic の一部・関連付けだけの PR は `false` とする。dispatcher worker は prompt の flag と reason をそのまま使い、機械的に渡された `issue-implement <N>` だけを close intent の根拠にしない。
 - description には目的、影響パッケージパス、ローカル検証手順を含める。
+- PR 作成前の `git push -u origin "$EXPECTED_BRANCH"` も、最初の実行からその exact command だけの scoped escalation として要求する。Auto-review または Git metadata write が失敗した場合は PR を作成せず、step 4 の形式で blocked を報告する。
 
 ### 10. CI 確認
 
@@ -228,6 +244,8 @@ PR URL と CI 結果（成功 / 修正後成功）をユーザーに返す。
 - Codex CLI の起動済み親 session の cwd を変更すること、または Codex App の managed worktree / Handoff を skill が作成・操作すること。
 - dispatcher worker が detached HEAD / expected branch 以外のまま実装 write や commit を始めること。linked worktree と専用割り当てを確認後、expected branch を確立できなければ停止する。
 - Codex CLI dispatch で `git worktree add` や `codex exec -C <worktree-path>` の互換 fallback を使うこと。
+- Codex managed linked worktree で Git metadata mutation をまず sandbox 内で通常実行して失敗させること、複数 command を1つの escalation にまとめること、または Auto-review の unavailable / denied / timeout 後に別方式で再試行すること。
+- Git metadata write のために `danger-full-access`、`--dangerously-bypass-approvals-and-sandbox`、repository / 共有 checkout / Git metadata directory の writable root 追加、`--add-dir`、alternate Git directory を使うこと。
 - 書き込みを伴う並列 worker が同じ worktree を共有すること。並列 worker は branch 名にかかわらず 1 worker = 1 worktree とする。
 - 単独実装で、すでに default branch 以外の feature branch にいるユーザーへの worktree 強制切り替え。step 4 の分類で既存 branch を尊重する。
 - step 4 で `worktree-start` を呼ぶ際に issue 番号を渡すこと。issue 番号を渡すと `worktree-start` 側の Status 判定経路に入り `issue-implement` への再帰連鎖が起きるため、タスク説明モードで slug (`<title>-<issue 番号>`) のみを渡す。
