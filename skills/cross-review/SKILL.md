@@ -108,7 +108,11 @@ git diff --cached
 
 Codex managed worker では「Codex managed worker の外側 sandbox」の規則に従い、次のコードブロック全体を exact reviewer-launch command として scoped escalation 付きで最初から実行する。pipeline の一部だけを先に通常 sandbox で実行したり、失敗後に別方式で再試行したりしない。その他の Codex CLI session では通常 sandbox 内で実行する。
 
+`<resolved-base-ref>` はステップ1で確定した `BASE_REF` の実値へ、shell-safe な単一引用符付き literal として置き換える。tool invocation ごとに新しい shell が起動する runtime でも値を失わないよう、placeholder や前の shell の変数に依存したまま実行しない。
+
 ```bash
+BASE_REF='<resolved-base-ref>'
+git rev-parse --verify --quiet "$BASE_REF" >/dev/null || exit 1
 set -o pipefail
 {
   echo "=== Committed diff ($BASE_REF...HEAD) ==="
@@ -143,7 +147,11 @@ Output format (respond in Japanese):
 
 `claude -p` で Claude CLI に diff を stdin 経由で渡す。`--bare` は OAuth / keychain のログイン状態を読まず `ANTHROPIC_API_KEY` または `--settings` の `apiKeyHelper` 前提になるため、ローカルの Claude.ai ログイン運用でも動くように使わない。`AGENTS.md` を読ませるために `--allowedTools "Read"` を付与する。
 
+`<resolved-base-ref>` はステップ1で確定した `BASE_REF` の実値へ、shell-safe な単一引用符付き literal として置き換える。
+
 ```bash
+BASE_REF='<resolved-base-ref>'
+git rev-parse --verify --quiet "$BASE_REF" >/dev/null || exit 1
 set -o pipefail
 {
   echo "=== Committed diff ($BASE_REF...HEAD) ==="
@@ -192,8 +200,12 @@ git diff --cached --name-only
 
 Codex managed worker ではファイルごとのコードブロック全体を1つの exact reviewer-launch command として scoped escalation 付きで実行する。各 reviewer launch は個別に承認を要求し、1つが拒否・timeout・失敗した時点で残りへ進まず blocked とする。
 
+`<resolved-base-ref>` はステップ1で確定した実値へ、`<file-path>` は対象 file の実値へ、それぞれ shell-safe な単一引用符付き literal として置き換える。前の shell の `BASE_REF` / `FILE_PATH` を引き継げると仮定しない。
+
 ```bash
+BASE_REF='<resolved-base-ref>'
 FILE_PATH='<file-path>'
+git rev-parse --verify --quiet "$BASE_REF" >/dev/null || exit 1
 set -o pipefail
 {
   echo "=== Diff for $FILE_PATH ==="
@@ -212,7 +224,9 @@ Output (respond in Japanese):
 #### 4-b. Claude Code で実行中の場合
 
 ```bash
+BASE_REF='<resolved-base-ref>'
 FILE_PATH='<file-path>'
+git rev-parse --verify --quiet "$BASE_REF" >/dev/null || exit 1
 set -o pipefail
 {
   echo "=== Diff for $FILE_PATH ==="
