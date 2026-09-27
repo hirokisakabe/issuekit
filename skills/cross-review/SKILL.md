@@ -80,16 +80,21 @@ fi
 
 ### 2. 差分の確認
 
+`<resolved-base-ref>` はステップ1で確定した `BASE_REF` の実値へ、shell-safe な単一引用符付き literal として置き換える。前の tool invocation の shell 変数を引き継げると仮定せず、この block 内で再設定・検証する。
+
 ```bash
+BASE_REF='<resolved-base-ref>'
+git rev-parse --verify --quiet "$BASE_REF" >/dev/null || exit 1
+
 # コミット済みの変更（ブランチの差分）
-git diff "$BASE_REF"...HEAD --stat
-git diff "$BASE_REF"...HEAD
+git diff --no-ext-diff --no-textconv "$BASE_REF"...HEAD --stat
+git diff --no-ext-diff --no-textconv "$BASE_REF"...HEAD
 
 # 未コミットの変更がある場合（unstaged + staged）
-git diff --stat
-git diff
-git diff --cached --stat
-git diff --cached
+git diff --no-ext-diff --no-textconv --stat
+git diff --no-ext-diff --no-textconv
+git diff --no-ext-diff --no-textconv --cached --stat
+git diff --no-ext-diff --no-textconv --cached
 ```
 
 差分のファイル数と行数を確認し、レビュー方法を決定する。
@@ -195,11 +200,16 @@ Output format (respond in Japanese):
 
 差分をファイル単位に分割し、ファイルごとに reviewer session を呼ぶ。最後に全ファイルのレビュー結果を集約してサマリーを作成する。
 
+ここでも `<resolved-base-ref>` をステップ1で確定した実値へ shell-safe な単一引用符付き literal として置き換え、この block 内で再設定・検証する。
+
 ```bash
+BASE_REF='<resolved-base-ref>'
+git rev-parse --verify --quiet "$BASE_REF" >/dev/null || exit 1
+
 # 変更ファイル一覧を取得（コミット済み + unstaged + staged の和集合）
-git diff "$BASE_REF"...HEAD --name-only
-git diff --name-only
-git diff --cached --name-only
+git diff --no-ext-diff --no-textconv "$BASE_REF"...HEAD --name-only
+git diff --no-ext-diff --no-textconv --name-only
+git diff --no-ext-diff --no-textconv --cached --name-only
 ```
 
 #### 4-a. Codex CLI で実行中の場合
