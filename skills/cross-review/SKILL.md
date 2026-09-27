@@ -27,7 +27,7 @@ Agent Skills は agent-portable な open standard であり、本 skill は特�
 
 | 実装中の runtime | 使用 CLI | 起動方法 |
 | ---------------- | -------- | -------- |
-| Codex CLI | Codex CLI | `codex exec --sandbox read-only` |
+| Codex CLI | Codex CLI | `codex --ask-for-approval never exec --sandbox read-only` |
 | Claude Code | Claude CLI | `claude -p --allowedTools "Read"` |
 
 この対応は「同じ製品ファミリーの CLI で別セッションを起動する」ためのものであり、別モデルレビューを保証するものではない。別 backend / 別モデルレビューが必要な場合は、本 skill の責務として残さず別 issue で設計する。
@@ -36,7 +36,7 @@ Agent Skills は agent-portable な open standard であり、本 skill は特�
 
 `issue-dispatch` が `codex exec --approve-for-me --worktree` で起動した Codex managed worker では、worker の `workspace-write` sandbox 内から nested `codex exec` を通常起動すると、子 process が `failed to initialize in-process app-server client: Operation not permitted (os error 1)` で停止することがある。
 
-この呼び出し方だと確認できる場合に限り、後述の diff 生成から `codex exec --sandbox read-only` までを含む **reviewer 起動 pipeline 全体を1つの exact command** として、最初の実行から narrowly scoped escalation で Auto-review に要求する。これは外側の worker sandbox を越えて reviewer process を起動するための例外であり、子 reviewer 自体の sandbox を緩めるものではない。子には常に `--sandbox read-only` を明示し、`--full-auto`、`--sandbox workspace-write`、`danger-full-access`、`--dangerously-bypass-approvals-and-sandbox`、writable root 追加、`--add-dir` を使わない。
+この呼び出し方だと確認できる場合に限り、後述の diff 生成から `codex --ask-for-approval never exec --sandbox read-only` までを含む **reviewer 起動 pipeline 全体を1つの exact command** として、最初の実行から narrowly scoped escalation で Auto-review に要求する。これは外側の worker sandbox を越えて reviewer process を起動するための例外であり、子 reviewer 自体の sandbox を緩めるものではない。子には常に `--ask-for-approval never` と `--sandbox read-only` を明示し、sandbox 外実行の approval を要求できない read-only non-interactive session に固定する。`--full-auto`、`--sandbox workspace-write`、`danger-full-access`、`--dangerously-bypass-approvals-and-sandbox`、writable root 追加、`--add-dir` は使わない。
 
 通常の Codex CLI session、Claude Code、または managed worker だと確認できない session では escalation せず、それぞれ従来の起動方法を使う。managed worker で Auto-review が unavailable / denied / timeout の場合、または承認後の exact command が non-zero の場合は、その時点で blocked とし、通常 sandbox での再試行、権限拡大、別 CLI / backend / primitive への暗黙 fallback を行わない。
 
@@ -104,7 +104,7 @@ git diff --cached
 
 `codex exec` に diff を stdin から流し込み、レビュー指示を `[PROMPT]` 引数として渡す。stdin が piped されかつ `[PROMPT]` も指定された場合、codex は stdin を `<stdin>` ブロックとして prompt に append する仕様 (`codex exec --help` 参照)。`codex exec review` のサブコマンド固有の挙動には依存しない。
 
-`--sandbox read-only` を明示することで、汎用 `codex exec` を使いながらも cross-review の「報告のみ・自動修正しない」原則を CLI レイヤーで担保する（`--full-auto` は workspace-write が付くため使わない）。
+`--ask-for-approval never` と `--sandbox read-only` を明示することで、汎用 `codex exec` を使いながらも sandbox 外実行の approval を要求できない read-only non-interactive session とし、cross-review の「報告のみ・自動修正しない」原則を CLI レイヤーで担保する（`--full-auto` は workspace-write が付くため使わない）。
 
 Codex managed worker では「Codex managed worker の外側 sandbox」の規則に従い、次のコードブロック全体を exact reviewer-launch command として scoped escalation 付きで最初から実行する。pipeline の一部だけを先に通常 sandbox で実行したり、失敗後に別方式で再試行したりしない。その他の Codex CLI session では通常 sandbox 内で実行する。
 
@@ -123,7 +123,7 @@ set -o pipefail
   echo
   echo "=== Staged diff ==="
   git diff --cached || exit 1
-} | codex exec --sandbox read-only "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff is supplied via stdin (codex wraps it as a <stdin> block). First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards.
+} | codex --ask-for-approval never exec --sandbox read-only "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff is supplied via stdin (codex wraps it as a <stdin> block). First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards.
 
 Then evaluate the diff from these perspectives:
 
@@ -196,7 +196,7 @@ git diff --cached --name-only
 
 #### 4-a. Codex CLI で実行中の場合
 
-`FILE_PATH` でファイルパスを変数化し、空白や shell メタ文字を含むファイル名でも壊れないようにする（3-a と同じく `--sandbox read-only` で書き込みを禁止）。`<file-path>` は placeholder で、実利用時は単一引用符付きで実パスに置き換える（例: `FILE_PATH='skills/cross-review/SKILL.md'`）。
+`FILE_PATH` でファイルパスを変数化し、空白や shell メタ文字を含むファイル名でも壊れないようにする（3-a と同じく `--ask-for-approval never` と `--sandbox read-only` で sandbox 外実行の申請と書き込みを禁止）。`<file-path>` は placeholder で、実利用時は単一引用符付きで実パスに置き換える（例: `FILE_PATH='skills/cross-review/SKILL.md'`）。
 
 Codex managed worker ではファイルごとのコードブロック全体を1つの exact reviewer-launch command として scoped escalation 付きで実行する。各 reviewer launch は個別に承認を要求し、1つが拒否・timeout・失敗した時点で残りへ進まず blocked とする。
 
@@ -212,7 +212,7 @@ set -o pipefail
   git diff "$BASE_REF"...HEAD -- "$FILE_PATH" || exit 1
   git diff -- "$FILE_PATH" || exit 1
   git diff --cached -- "$FILE_PATH" || exit 1
-} | codex exec --sandbox read-only "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff for a single file is supplied via stdin (codex wraps it as a <stdin> block). Review the changes to $FILE_PATH.
+} | codex --ask-for-approval never exec --sandbox read-only "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff for a single file is supplied via stdin (codex wraps it as a <stdin> block). Review the changes to $FILE_PATH.
 
 Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation, Related-file consistency.
 
@@ -259,8 +259,8 @@ reviewer session の結果を確認し、ユーザーへ報告する。
 - **実行中 runtime を判定できない場合**: 自動検出で別 CLI へ切り替えず停止する。Codex CLI / Claude Code 以外の runtime 向け手順は別 issue で扱う。
 - **default branch の取得失敗時**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` が空文字を返す、もしくは `gh` がエラーを返した場合は、その時点で停止しエラーメッセージを出す。`main` への暗黙フォールバックは行わない（誤った base に対する diff でレビュー結果が破綻するため）。よくある原因は、`gh` 未認証 (`gh auth status` で確認) / git repo 外での実行 / リモートが GitHub 以外。原因を解消してから再実行する。
 - **base ref の resolve 失敗時**: `BASE_BRANCH` 名は取れたが、ローカルに該当 ref も `origin/$BASE_BRANCH` も存在しない場合（例: 浅い clone / default branch を local 側で削除した worktree 等）も停止する。`git fetch origin` で remote-tracking ref を取得すれば多くの場合解消する。
-- **Codex managed worker の reviewer 起動が拒否・timeout・失敗した場合**: diff 生成失敗を含む exact reviewer-launch command の失敗、Auto-review の状態または表示された rationale、exit code / stderr を blocker として報告して停止する。通常 sandbox での再試行、権限拡大、`claude -p` 等への切り替え、別 primitive への fallback は行わない。子 reviewer の `--sandbox read-only` も変更しない。
-- **Codex CLI で `codex exec review --base ... [PROMPT]` 系のエラーに遭遇した場合**: Codex CLI 側の既知制約として、native review target (`--base` / `--commit` / `--uncommitted`) と custom prompt は同時に受け付けられない。本 skill の実行例は `git diff "$BASE_REF"...HEAD` を stdin で `codex exec --sandbox read-only` に渡す方式なので、`codex exec review` へ置き換えない。古いメモや shell history に残った `codex exec review --base ... [PROMPT]` の呼び出しは破棄する。
+- **Codex managed worker の reviewer 起動が拒否・timeout・失敗した場合**: diff 生成失敗を含む exact reviewer-launch command の失敗、Auto-review の状態または表示された rationale、exit code / stderr を blocker として報告して停止する。通常 sandbox での再試行、権限拡大、`claude -p` 等への切り替え、別 primitive への fallback は行わない。子 reviewer の `--ask-for-approval never` と `--sandbox read-only` も変更しない。
+- **Codex CLI で `codex exec review --base ... [PROMPT]` 系のエラーに遭遇した場合**: Codex CLI 側の既知制約として、native review target (`--base` / `--commit` / `--uncommitted`) と custom prompt は同時に受け付けられない。本 skill の実行例は `git diff "$BASE_REF"...HEAD` を stdin で `codex --ask-for-approval never exec --sandbox read-only` に渡す方式なので、`codex exec review` へ置き換えない。古いメモや shell history に残った `codex exec review --base ... [PROMPT]` の呼び出しは破棄する。
 - **差分がない場合**: レビュー不要としてスキップする。
 - **reviewer session がタイムアウトした場合**: Codex managed worker では上記の blocker 規則に従って停止する。それ以外の runtime / session では差分を分割して再試行する（ステップ 4）。
 - **Claude CLI で stdin が 10MB を超える場合**: Claude CLI が明示的にエラーで停止するので、ステップ 4 の分割レビューに切り替える。
@@ -269,7 +269,7 @@ reviewer session の結果を確認し、ユーザーへ報告する。
 
 この経路を変更した場合は disposable な `codex exec --approve-for-me --worktree` worker で、次の成功・失敗両方を確認し、実行条件、exact reviewer-launch command、Auto-review の判定、exit code / stderr、reviewer 出力、変更前後の `git status --porcelain` を PR description に残す。秘密情報やローカル絶対 path は記録しない。
 
-1. **成功経路**: Auto-review が exact reviewer-launch command を承認する環境でステップ 3 または 4 を実行する。reviewer 結果が worker に返り、reviewer 前後で repository file と Git metadata に意図しない変更がないことを確認する。子 command に `--sandbox read-only` が含まれることも記録する。
+1. **成功経路**: Auto-review が exact reviewer-launch command を承認する環境でステップ 3 または 4 を実行する。reviewer 結果が worker に返り、reviewer 前後で repository file と Git metadata に意図しない変更がないことを確認する。子 command に `--ask-for-approval never` と `--sandbox read-only` が含まれ、起動ログが `approval: never` / `sandbox: read-only` を示すことも記録する。
 2. **失敗経路**: disposable worker で reviewer-launch escalation を拒否するか timeout / non-zero failure を再現する。worker が blocker を返して停止し、通常 sandbox での再試行、権限拡大、別 CLI / backend / primitive への fallback が行われないことを確認する。
 
 reviewer の read-only 境界そのものを追加検証する場合は、disposable branch で repository file と Git ref への書き込みを reviewer に要求し、両方が拒否され、実行前後の `git status --porcelain` と ref 一覧が一致することを確認する。通常の実装 branch に probe file や probe ref を残さない。

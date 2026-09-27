@@ -125,7 +125,7 @@ fi
 
 dispatcher から `codex exec --approve-for-me --worktree` で起動された Codex CLI worker は、上表で linked worktree と専用割り当てを確認した直後、最初の実装 write / commit より前に expected branch を確立する。`EXPECTED_BRANCH` は worker prompt から受け取り、空や不正なら停止する。
 
-この worker では、`git fetch` / `git switch` / `git add` / `git commit` / `git push` と、その他の Git metadata を変更する操作を、通常の sandbox command として一度失敗させてから再試行してはならない。各操作は**最初の実行から、その exact command だけ**を対象に narrowly scoped escalation を要求し、Auto-review の判定を受ける。複数の Git mutation を shell operator、pipeline、subshell、wrapper script 等による複合 command にまとめず、1 command ずつ要求する。source file の編集、test、lint、inspection、acceptance-check は `workspace-write` 内に留め、Git metadata 以外へ escalation を広げない。cross-review の Codex reviewer launch だけは、nested sandbox failure を避けるため `cross-review` skill の規則どおり exact pipeline 単位の scoped escalation を使い、子 reviewer 自体を `--sandbox read-only` に固定する。
+この worker では、`git fetch` / `git switch` / `git add` / `git commit` / `git push` と、その他の Git metadata を変更する操作を、通常の sandbox command として一度失敗させてから再試行してはならない。各操作は**最初の実行から、その exact command だけ**を対象に narrowly scoped escalation を要求し、Auto-review の判定を受ける。複数の Git mutation を shell operator、pipeline、subshell、wrapper script 等による複合 command にまとめず、1 command ずつ要求する。source file の編集、test、lint、inspection、acceptance-check は `workspace-write` 内に留め、Git metadata 以外へ escalation を広げない。cross-review の Codex reviewer launch だけは、nested sandbox failure を避けるため `cross-review` skill の規則どおり exact pipeline 単位の scoped escalation を使い、子 reviewer 自体を `--ask-for-approval never` + `--sandbox read-only` に固定する。
 
 Auto-review が unavailable / denied / timeout の場合、または承認後も Git metadata write が失敗した場合は、その場で worker を blocked とし、通常実行での再試行や権限拡大をしない。blocker には次を記録する。
 
@@ -208,9 +208,9 @@ Codex managed linked worktree worker で commit する際は、対象 path を�
 - **warning** の指摘がある場合: 実装 agent 自身で対応要否を判断する。妥当な指摘は自律的に **追加 commit** で修正し、見送る場合は理由を添えて報告する（ユーザー確認は不要）。
 - **info** のみの場合: 指摘を共有し、PR 作成に進む。
 
-reviewer session は実行中 agent runtime に対応する CLI で起動する。Codex CLI で実装している場合は `codex exec --sandbox read-only`、Claude Code で実装している場合は `claude -p` を使う。base branch は `gh repo view --json defaultBranchRef` から動的に解決される（`master` / `develop` / `trunk` でもそのまま動く）。default branch 解決が失敗した場合は同 skill が明示的に停止するので、エラー出力に従って原因を解消してから再実行する。
+reviewer session は実行中 agent runtime に対応する CLI で起動する。Codex CLI で実装している場合は `codex --ask-for-approval never exec --sandbox read-only`、Claude Code で実装している場合は `claude -p` を使う。base branch は `gh repo view --json defaultBranchRef` から動的に解決される（`master` / `develop` / `trunk` でもそのまま動く）。default branch 解決が失敗した場合は同 skill が明示的に停止するので、エラー出力に従って原因を解消してから再実行する。
 
-Codex managed worker では `cross-review` skill の規則に従い、reviewer-launch pipeline 全体を最初から1つの exact command として scoped escalation に要求する。Auto-review の拒否・timeout、または承認後の command failure は blocker とし、通常 sandbox での再試行、権限拡大、別 reviewer への暗黙 fallback を行わない。子 reviewer の `--sandbox read-only` は維持する。Claude Code の `claude -p --allowedTools "Read"` 経路は変更しない。
+Codex managed worker では `cross-review` skill の規則に従い、reviewer-launch pipeline 全体を最初から1つの exact command として scoped escalation に要求する。Auto-review の拒否・timeout、または承認後の command failure は blocker とし、通常 sandbox での再試行、権限拡大、別 reviewer への暗黙 fallback を行わない。子 reviewer の `--ask-for-approval never` と `--sandbox read-only` は維持する。Claude Code の `claude -p --allowedTools "Read"` 経路は変更しない。
 
 ### 9. PR 作成
 
