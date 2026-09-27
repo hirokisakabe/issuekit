@@ -109,15 +109,16 @@ git diff --cached
 Codex managed worker では「Codex managed worker の外側 sandbox」の規則に従い、次のコードブロック全体を exact reviewer-launch command として scoped escalation 付きで最初から実行する。pipeline の一部だけを先に通常 sandbox で実行したり、失敗後に別方式で再試行したりしない。その他の Codex CLI session では通常 sandbox 内で実行する。
 
 ```bash
+set -o pipefail
 {
   echo "=== Committed diff ($BASE_REF...HEAD) ==="
-  git diff "$BASE_REF"...HEAD
+  git diff "$BASE_REF"...HEAD || exit 1
   echo
   echo "=== Unstaged diff ==="
-  git diff
+  git diff || exit 1
   echo
   echo "=== Staged diff ==="
-  git diff --cached
+  git diff --cached || exit 1
 } | codex exec --sandbox read-only "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff is supplied via stdin (codex wraps it as a <stdin> block). First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards.
 
 Then evaluate the diff from these perspectives:
@@ -143,15 +144,16 @@ Output format (respond in Japanese):
 `claude -p` で Claude CLI に diff を stdin 経由で渡す。`--bare` は OAuth / keychain のログイン状態を読まず `ANTHROPIC_API_KEY` または `--settings` の `apiKeyHelper` 前提になるため、ローカルの Claude.ai ログイン運用でも動くように使わない。`AGENTS.md` を読ませるために `--allowedTools "Read"` を付与する。
 
 ```bash
+set -o pipefail
 {
   echo "=== Committed diff ($BASE_REF...HEAD) ==="
-  git diff "$BASE_REF"...HEAD
+  git diff "$BASE_REF"...HEAD || exit 1
   echo
   echo "=== Unstaged diff ==="
-  git diff
+  git diff || exit 1
   echo
   echo "=== Staged diff ==="
-  git diff --cached
+  git diff --cached || exit 1
 } | claude -p \
   --allowedTools "Read" \
   --append-system-prompt "You are a senior code reviewer providing a second opinion. The diff is supplied via stdin. First, read the repository's AGENTS.md (if it exists) to understand project conventions and coding standards." \
@@ -192,11 +194,12 @@ Codex managed worker ではファイルごとのコードブロック全体を1�
 
 ```bash
 FILE_PATH='<file-path>'
+set -o pipefail
 {
   echo "=== Diff for $FILE_PATH ==="
-  git diff "$BASE_REF"...HEAD -- "$FILE_PATH"
-  git diff -- "$FILE_PATH"
-  git diff --cached -- "$FILE_PATH"
+  git diff "$BASE_REF"...HEAD -- "$FILE_PATH" || exit 1
+  git diff -- "$FILE_PATH" || exit 1
+  git diff --cached -- "$FILE_PATH" || exit 1
 } | codex exec --sandbox read-only "You are a senior code reviewer providing a second opinion. Do not modify any files; output the review only. The diff for a single file is supplied via stdin (codex wraps it as a <stdin> block). Review the changes to $FILE_PATH.
 
 Evaluate from: Correctness, Readability, Consistency, Security, Performance, Tests, Documentation, Related-file consistency.
@@ -210,11 +213,12 @@ Output (respond in Japanese):
 
 ```bash
 FILE_PATH='<file-path>'
+set -o pipefail
 {
   echo "=== Diff for $FILE_PATH ==="
-  git diff "$BASE_REF"...HEAD -- "$FILE_PATH"
-  git diff -- "$FILE_PATH"
-  git diff --cached -- "$FILE_PATH"
+  git diff "$BASE_REF"...HEAD -- "$FILE_PATH" || exit 1
+  git diff -- "$FILE_PATH" || exit 1
+  git diff --cached -- "$FILE_PATH" || exit 1
 } | claude -p \
   --allowedTools "Read" \
   --append-system-prompt "You are a senior code reviewer providing a second opinion. The diff for a single file is supplied via stdin." \
@@ -241,7 +245,7 @@ reviewer session の結果を確認し、ユーザーへ報告する。
 - **実行中 runtime を判定できない場合**: 自動検出で別 CLI へ切り替えず停止する。Codex CLI / Claude Code 以外の runtime 向け手順は別 issue で扱う。
 - **default branch の取得失敗時**: `gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'` が空文字を返す、もしくは `gh` がエラーを返した場合は、その時点で停止しエラーメッセージを出す。`main` への暗黙フォールバックは行わない（誤った base に対する diff でレビュー結果が破綻するため）。よくある原因は、`gh` 未認証 (`gh auth status` で確認) / git repo 外での実行 / リモートが GitHub 以外。原因を解消してから再実行する。
 - **base ref の resolve 失敗時**: `BASE_BRANCH` 名は取れたが、ローカルに該当 ref も `origin/$BASE_BRANCH` も存在しない場合（例: 浅い clone / default branch を local 側で削除した worktree 等）も停止する。`git fetch origin` で remote-tracking ref を取得すれば多くの場合解消する。
-- **Codex managed worker の reviewer 起動が拒否・timeout・失敗した場合**: 失敗した exact reviewer-launch command、Auto-review の状態または表示された rationale、exit code / stderr を blocker として報告して停止する。通常 sandbox での再試行、権限拡大、`claude -p` 等への切り替え、別 primitive への fallback は行わない。子 reviewer の `--sandbox read-only` も変更しない。
+- **Codex managed worker の reviewer 起動が拒否・timeout・失敗した場合**: diff 生成失敗を含む exact reviewer-launch command の失敗、Auto-review の状態または表示された rationale、exit code / stderr を blocker として報告して停止する。通常 sandbox での再試行、権限拡大、`claude -p` 等への切り替え、別 primitive への fallback は行わない。子 reviewer の `--sandbox read-only` も変更しない。
 - **Codex CLI で `codex exec review --base ... [PROMPT]` 系のエラーに遭遇した場合**: Codex CLI 側の既知制約として、native review target (`--base` / `--commit` / `--uncommitted`) と custom prompt は同時に受け付けられない。本 skill の実行例は `git diff "$BASE_REF"...HEAD` を stdin で `codex exec --sandbox read-only` に渡す方式なので、`codex exec review` へ置き換えない。古いメモや shell history に残った `codex exec review --base ... [PROMPT]` の呼び出しは破棄する。
 - **差分がない場合**: レビュー不要としてスキップする。
 - **reviewer session がタイムアウトした場合**: Codex managed worker では上記の blocker 規則に従って停止する。それ以外の runtime / session では差分を分割して再試行する（ステップ 4）。
